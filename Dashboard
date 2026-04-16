@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="th">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OT Dashboard — Oct 2025 to Apr 2026</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+:root{
+  --bg-primary:#ffffff;--bg-secondary:#f5f5f3;--bg-info:#e6f1fb;
+  --text-primary:#1a1a18;--text-secondary:#5f5e5a;--text-tertiary:#888780;--text-info:#185fa5;
+  --border:rgba(0,0,0,0.12);--border-md:rgba(0,0,0,0.22);--radius-md:8px;--radius-lg:12px;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg-primary:#1e1e1c;--bg-secondary:#2a2a28;--bg-info:#0c2e50;
+  --text-primary:#f0ede8;--text-secondary:#b4b2a9;--text-tertiary:#888780;--text-info:#85b7eb;
+  --border:rgba(255,255,255,0.1);--border-md:rgba(255,255,255,0.18);
+}}
+body{font-family:var(--font);background:var(--bg-secondary);color:var(--text-primary);padding:16px;min-height:100%;overflow-y:auto;}
+.app-wrapper{width:100%;height:100%;display:flex;flex-direction:column;}
+.dash{max-width:1200px;margin:0 auto;width:100%;flex:1;}
+.header{margin-bottom:1.5rem;}
+.header h1{font-size:22px;font-weight:500;color:var(--text-primary);}
+.header p{font-size:13px;color:var(--text-secondary);margin-top:4px;}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1.5rem;overflow-x:auto;}
+.tab{padding:6px 16px;border-radius:var(--radius-md);border:0.5px solid var(--border);font-size:13px;cursor:pointer;color:var(--text-secondary);background:var(--bg-primary);transition:all .15s;font-family:var(--font);white-space:nowrap;}
+.tab:hover{border-color:var(--border-md);color:var(--text-primary);}
+.tab.active{background:var(--bg-info);color:var(--text-info);border-color:transparent;font-weight:500;}
+.tab.ov.active{background:#1a1a18;color:#f5f5f3;border-color:transparent;}
+@media(prefers-color-scheme:dark){.tab.ov.active{background:#f0ede8;color:#1a1a18;}}
+.g4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1.5rem;}
+.g5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:1rem;}
+@media(max-width:1024px){.g4,.g5{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:640px){.g4,.g5{grid-template-columns:1fr;}.header{flex-direction:column;}}
+.metric{background:var(--bg-primary);border:0.5px solid var(--border);border-radius:var(--radius-md);padding:14px 16px;}
+.metric-label{font-size:12px;color:var(--text-secondary);margin-bottom:5px;}
+.metric-val{font-size:20px;font-weight:500;color:var(--text-primary);}
+.metric-sub{font-size:11px;color:var(--text-tertiary);margin-top:3px;}
+.card{background:var(--bg-primary);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem 1.5rem;margin-bottom:1rem;overflow:hidden;}
+.card-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:14px;}
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{font-size:11px;font-weight:500;color:var(--text-secondary);text-align:left;padding:7px 8px;border-bottom:0.5px solid var(--border);white-space:nowrap;}
+td{padding:7px 8px;border-bottom:0.5px solid var(--border);color:var(--text-primary);white-space:nowrap;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:var(--bg-secondary);}
+.badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:4px;display:inline-block;}
+.total-row td{font-weight:500;background:var(--bg-secondary);}
+.barcell{display:flex;align-items:center;gap:8px;}
+.barbg{height:6px;border-radius:3px;background:var(--border);flex:1;min-width:50px;}
+.barfill{height:6px;border-radius:3px;}
+.leg{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:14px;font-size:11px;}
+.legitem{display:flex;align-items:center;gap:5px;color:var(--text-secondary);}
+.legdot{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
+
+/* ─── Export Button Group ─── */
+.export-group{display:flex;gap:6px;align-items:center;flex-shrink:0;}
+.pdf-export-btn{
+  padding:7px 13px;border-radius:var(--radius-md);border:0.5px solid var(--border);
+  font-size:12px;cursor:pointer;background:var(--bg-primary);color:var(--text-primary);
+  transition:all .15s;font-family:var(--font);display:inline-flex;align-items:center;
+  gap:5px;font-weight:500;white-space:nowrap;
+}
+.pdf-export-btn:hover{border-color:var(--border-md);background:var(--bg-secondary);}
+.pdf-export-btn.loading{opacity:0.55;cursor:not-allowed;pointer-events:none;}
+.pdf-export-btn.btn-all{
+  background:var(--bg-info);color:var(--text-info);border-color:var(--text-info);
+  opacity:0.85;
+}
+.pdf-export-btn.btn-all:hover{opacity:1;}
+
+/* ─── Export Progress Modal ─── */
+#exportModal{
+  display:none;position:fixed;inset:0;z-index:9999;
+  background:rgba(0,0,0,0.45);backdrop-filter:blur(4px);
+  align-items:center;justify-content:center;
+}
+#exportModal.show{display:flex;}
+.export-modal-box{
+  background:var(--bg-primary);border:0.5px solid var(--border-md);
+  border-radius:var(--radius-lg);padding:28px 32px;min-width:300px;text-align:center;
+  box-shadow:0 12px 40px rgba(0,0,0,0.2);
+}
+.export-modal-title{font-size:15px;font-weight:500;color:var(--text-primary);margin-bottom:6px;}
+.export-modal-sub{font-size:12px;color:var(--text-secondary);margin-bottom:20px;}
+.export-progress-bar-bg{height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+.export-progress-bar-fill{height:4px;background:#3b82f6;border-radius:2px;transition:width .3s ease;}
+.export-modal-step{font-size:11px;color:var(--text-tertiary);margin-top:10px;}
+
+/* ─── Print Styles ─── */
+@media print{
+  body{background:white !important;padding:0 !important;}
+  .app-wrapper{background:white !important;}
+  .header{page-break-after:avoid;}
+  .card{page-break-inside:avoid;border:1px solid #eee !important;margin-bottom:16px !important;}
+  .tabs,.export-group{display:none !important;}
+  table{font-size:10px !important;}
+  th,td{padding:4px !important;}
+  canvas{max-width:100% !important;height:auto !important;}
+}
+  </style>
+  <style>body { box-sizing: border-box; }</style>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js" type="text/javascript"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.17" type="text/javascript"></script>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+  <script src="/_sdk/element_sdk.js" type="text/javascript"></script>
+ </head>
+ <body>
+  <div class="app-wrapper">
+   <div class="dash">
+    <div class="header">
+     <h1>OT Hours Dashboard</h1>
+     <p>Overtime hours by team — October 2025 to April 2026</p>
+    </div>
+    <div style="margin-bottom:1rem;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
+     <div class="tabs" id="tabs" style="margin-bottom:0;flex:1;min-width:0;"></div>
+     <div class="export-group"><button class="pdf-export-btn" id="exportCurrentBtn" onclick="exportCurrent()">
+       <svg width="14" height="14" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
+       </svg> Export Tab </button> <button class="pdf-export-btn btn-all" id="exportAllBtn" onclick="exportAll()">
+       <svg width="14" height="14" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><rect x="3" y="12" width="5" height="8" rx="1" /><rect x="10" y="8" width="5" height="12" rx="1" /><rect x="17" y="10" width="5" height="10" rx="1" />
+       </svg> Export All Tabs </button>
+     </div>
+    </div>
+    <div id="content"></div>
+   </div>
+  </div><!-- Export Progress Modal -->
+  <div id="exportModal">
+   <div class="export-modal-box">
+    <div class="export-modal-title" id="modalTitle">
+     กำลังสร้าง PDF...
+    </div>
+    <div class="export-modal-sub" id="modalSub">
+     โปรดรอสักครู่
+    </div>
+    <div class="export-progress-bar-bg">
+     <div class="export-progress-bar-fill" id="modalProgress" style="width:0%"></div>
+    </div>
+    <div class="export-modal-step" id="modalStep">
+     เตรียมข้อมูล...
+    </div>
+   </div>
+  </div>
+  <script>
+const MONTHS=['Oct 2025','Nov 2025','Dec 2025','Jan 2026','Feb 2026','Mar 2026','Apr 2026'];
+const MCOLS=['#1e40af','#2563eb','#3b82f6','#60a5fa','#93c5fd','#bfdbfe','#dbeafe'];
+const WEEK_COLORS=['#1e3a8a','#1e40af','#3b82f6','#60a5fa'];
+const TRENDCOLORS=['#dc2626','#ea580c','#f97316','#eab308','#22c55e','#10b981','#14b8a6','#06b6d4','#0ea5e9','#3b82f6','#6366f1','#8b5cf6','#d946ef','#ec4899','#f43f5e','#a855f7'];
+
+const TEAMS=[
+  {code:'EK',name:'Team EK',airlines:'EK/UO/FY/6B/BY',color:'#dc2626'},
+  {code:'SQ',name:'Team SQ',airlines:'SQ/CX/LY',color:'#ea580c'},
+  {code:'EY',name:'Team EY',airlines:'EY/AY/DV',color:'#f97316'},
+  {code:'TR',name:'Team TR',airlines:'TR/QP/6E',color:'#eab308'},
+  {code:'WY',name:'Team WY',airlines:'WY/G9/9C/DK',color:'#22c55e'},
+  {code:'JQ',name:'Team JQ',airlines:'JQ/IT/IX/AI/N0',color:'#10b981'},
+  {code:'TK',name:'Team TK',airlines:'TK/VJ/SG/HY/OD',color:'#14b8a6'},
+  {code:'KC',name:'Team KC',airlines:'KC/LJ/KE/OZ/NO/AF',color:'#06b6d4'},
+  {code:'QR',name:'Team QR',airlines:'QR/MH/OM/DE',color:'#0ea5e9'},
+  {code:'AK',name:'Team AK',airlines:'AK/QZ/8M',color:'#3b82f6'},
+  {code:'SU',name:'Team SU',airlines:'SU/W5/B2',color:'#6366f1'},
+  {code:'CHN',name:'Team CHN',airlines:'3U/9H/AQ/CA/CZ/FM/HU/HO/HX/MU/CZ',color:'#8b5cf6'},
+  {code:'CHARTER',name:'Team CHARTER',airlines:'ZF/EO/WZ/N4/G2/LO/HH/H4/S7/C6',color:'#d946ef'},
+  {code:'SV',name:'Team SV/WK',airlines:'SV/WK/KA',color:'#ec4899'},
+  {code:'PG',name:'Team PG',airlines:'PG',color:'#f43f5e'},
+  {code:'PVT',name:'Team PVT',airlines:'PVT',color:'#a855f7'},
+  {code:'ADMINDOC',name:'Admin Doc',airlines:'ADMIN DOC',color:'#64748b'},
+  {code:'PORTER',name:'Admin Porter',airlines:'ADMIN PORTER / PORTER',color:'#475569'},
+];
+
+const DATA={
+  'Oct 2025':{weeks:['W1: 1-7 Oct','W2: 8-14 Oct','W3: 15-21 Oct','W4: 22-31 Oct'],flightCounts:[683,678,690,735],teams:{
+    EK:{hours:['361:00','606:00','438:00','759:00'],flights:[32,32,32,32]},SQ:{hours:['302:00','644:30','364:00','870:30'],flights:[47,48,46,47]},
+    EY:{hours:['385:00','650:30','419:30','929:30'],flights:[21,21,24,22]},TR:{hours:['482:30','686:30','437:00','1021:30'],flights:[76,78,76,77]},
+    WY:{hours:['508:30','661:30','396:00','641:30'],flights:[37,35,35,36]},JQ:{hours:['450:30','603:00','457:00','844:30'],flights:[33,33,34,34]},
+    TK:{hours:['224:00','379:30','245:00','522:30'],flights:[25,25,25,25]},KC:{hours:['427:00','706:00','286:00','795:00'],flights:[44,42,37,38]},
+    QR:{hours:['616:30','997:00','725:00','1526:00'],flights:[37,39,39,39]},AK:{hours:['238:00','399:30','205:30','536:00'],flights:[45,45,45,44]},
+    SU:{hours:['237:30','441:30','258:00','808:00'],flights:[30,31,34,33]},CHN:{hours:['300:00','662:30','365:00','1329:30'],flights:[111,111,109,110]},
+    CHARTER:{hours:['75:30','316:00','91:00','680:30'],flights:[13,11,11,12]},SV:{hours:['108:30','149:00','112:00','347:00'],flights:[0,0,0,0]},
+    PG:{hours:['272:30','419:30','292:30','534:30'],flights:[123,125,123,125]},PVT:{hours:['40:30','79:30','103:30','129:00'],flights:[9,2,20,8]},
+    ADMINDOC:{hours:['7:00','95:00','18:00','130:30'],flights:[0,0,0,0]},PORTER:{hours:['413:30','916:00','527:00','1335:30'],flights:[0,0,0,0]},PORTER_CREW:{hours:['12:00','12:00','0:00','36:00'],flights:[0,0,0,0]},OFFICE:{hours:['0:00','63:00','0:00','71:00'],flights:[0,0,0,0]},
+  }},
+  'Nov 2025':{weeks:['W1: 1-7 Nov','W2: 8-14 Nov','W3: 15-21 Nov','W4: 22-30 Nov'],flightCounts:[696,703,698,686],teams:{
+    EK:{hours:['287:30','358:30','441:00','527:30'],flights:[32,32,32,32]},SQ:{hours:['711:00','548:00','679:30','754:30'],flights:[47,48,47,47]},
+    EY:{hours:['506:30','551:00','578:30','766:00'],flights:[27,27,27,27]},TR:{hours:['665:30','621:30','623:30','908:30'],flights:[77,78,77,77]},
+    WY:{hours:['320:00','270:00','345:30','566:00'],flights:[34,35,34,34]},JQ:{hours:['446:30','485:30','480:00','730:00'],flights:[34,34,34,34]},
+    TK:{hours:['487:30','422:00','530:30','661:00'],flights:[25,25,25,25]},KC:{hours:['392:00','413:00','459:00','652:30'],flights:[36,36,36,36]},
+    QR:{hours:['1071:00','1017:00','1030:30','1211:00'],flights:[39,39,39,39]},AK:{hours:['319:00','238:30','344:30','444:00'],flights:[50,50,50,49]},
+    SU:{hours:['411:00','248:30','268:30','236:00'],flights:[33,33,33,33]},CHN:{hours:['644:30','548:00','772:30','1079:00'],flights:[74,76,74,75]},
+    CHARTER:{hours:['400:30','307:30','535:30','462:30'],flights:[16,16,16,16]},SV:{hours:['184:30','157:00','152:30','178:00'],flights:[0,0,0,0]},
+    PG:{hours:['259:00','267:00','255:00','376:00'],flights:[123,124,123,123]},PVT:{hours:['39:30','40:30','93:00','47:00'],flights:[5,4,4,3]},
+    ADMINDOC:{hours:['33:00','26:00','32:00','29:30'],flights:[0,0,0,0]},PORTER:{hours:['663:30','706:30','695:30','923:00'],flights:[0,0,0,0]},PORTER_CREW:{hours:['9:30','0:00','17:30','24:30'],flights:[0,0,0,0]},OFFICE:{hours:['20:00','49:00','28:30','25:00'],flights:[0,0,0,0]},
+  }},
+  'Dec 2025':{weeks:['W1: 1-7 Dec','W2: 8-14 Dec','W3: 15-21 Dec','W4: 22-31 Dec'],flightCounts:[833,856,856,901],teams:{
+    EK:{hours:['700:30','536:00','478:00','940:30'],flights:[33,33,33,33]},SQ:{hours:['908:30','663:00','698:30','1294:30'],flights:[56,57,57,57]},
+    EY:{hours:['830:00','625:30','659:30','1227:30'],flights:[44,46,46,46]},TR:{hours:['1204:30','611:30','650:30','1244:30'],flights:[80,82,82,82]},
+    WY:{hours:['807:00','497:00','634:00','1067:30'],flights:[52,53,53,53]},JQ:{hours:['941:00','732:00','697:00','1078:30'],flights:[38,40,40,40]},
+    TK:{hours:['600:30','616:00','694:00','1034:00'],flights:[31,32,32,32]},KC:{hours:['800:00','524:30','500:00','960:30'],flights:[39,40,40,40]},
+    QR:{hours:['1247:00','1081:30','1067:30','1668:30'],flights:[44,45,45,45]},AK:{hours:['445:30','288:30','244:00','434:30'],flights:[52,53,53,54]},
+    SU:{hours:['823:30','350:30','324:00','811:00'],flights:[36,37,37,37]},CHN:{hours:['1559:30','1246:30','1258:30','2142:00'],flights:[147,152,152,152]},
+    CHARTER:{hours:['816:00','545:30','381:30','680:00'],flights:[38,40,40,40]},SV:{hours:['278:00','190:00','201:30','412:00'],flights:[0,0,0,0]},
+    PG:{hours:['635:30','364:00','378:00','632:30'],flights:[136,137,137,137]},PVT:{hours:['227:30','67:00','93:30','208:30'],flights:[7,9,9,8]},
+    ADMINDOC:{hours:['109:30','40:00','46:00','126:30'],flights:[0,0,0,0]},PORTER:{hours:['1720:30','950:30','963:00','1864:30'],flights:[0,0,0,0]},PORTER_CREW:{hours:['162:30','20:00','57:30','213:00'],flights:[0,0,0,0]},OFFICE:{hours:['84:30','37:00','26:00','99:30'],flights:[0,0,0,0]},
+  }},
+  'Jan 2026':{weeks:['W1: 1-7 Jan','W2: 8-14 Jan','W3: 15-21 Jan','W4: 22-31 Jan'],flightCounts:[857,860,860,840],teams:{
+    EK:{hours:['861:00','538:00','577:30','760:00'],flights:[35,35,35,35]},SQ:{hours:['1055:00','611:00','690:00','952:30'],flights:[60,60,60,60]},
+    EY:{hours:['1052:00','736:00','621:30','1036:00'],flights:[47,47,47,47]},TR:{hours:['1090:00','759:30','717:30','980:30'],flights:[73,73,73,73]},
+    WY:{hours:['906:00','602:30','589:00','989:00'],flights:[53,53,53,53]},JQ:{hours:['863:00','551:30','613:00','734:30'],flights:[40,40,40,40]},
+    TK:{hours:['808:00','541:30','535:00','575:30'],flights:[47,47,47,47]},KC:{hours:['1003:30','589:30','517:00','781:30'],flights:[33,33,33,33]},
+    QR:{hours:['1545:00','1147:30','1178:00','1608:00'],flights:[61,61,61,61]},AK:{hours:['560:00','245:00','265:30','314:30'],flights:[53,53,53,54]},
+    SU:{hours:['722:30','602:30','331:00','531:00'],flights:[37,37,37,37]},CHN:{hours:['1850:30','1090:30','1028:00','1606:30'],flights:[117,120,120,119]},
+    CHARTER:{hours:['575:30','131:30','315:00','356:30'],flights:[56,56,56,56]},SV:{hours:['445:00','252:00','251:00','338:30'],flights:[0,0,0,0]},
+    PG:{hours:['628:30','319:00','305:30','429:00'],flights:[135,136,136,136]},PVT:{hours:['352:30','125:30','86:00','153:30'],flights:[10,9,9,9]},
+    ADMINDOC:{hours:['177:00','52:30','36:30','69:30'],flights:[0,0,0,0]},PORTER:{hours:['1847:30','823:00','787:00','988:00'],flights:[0,0,0,0]},PORTER_CREW:{hours:['302:00','136:00','139:30','189:00'],flights:[0,0,0,0]},OFFICE:{hours:['93:00','39:00','33:00','27:30'],flights:[0,0,0,0]},
+  }},
+  'Feb 2026':{weeks:['W1: 1-7 Feb','W2: 8-14 Feb','W3: 15-21 Feb','W4: 22-28 Feb'],flightCounts:[885,890,905,860],teams:{
+    EK:{hours:['556:30','589:30','567:30','540:00'],flights:[35,35,35,34]},SQ:{hours:['638:30','619:30','679:30','521:00'],flights:[57,57,57,57]},
+    EY:{hours:['700:00','786:00','729:00','707:00'],flights:[48,48,48,47]},TR:{hours:['707:00','662:30','653:00','592:00'],flights:[73,73,73,73]},
+    WY:{hours:['726:00','826:30','879:30','687:00'],flights:[66,66,66,66]},JQ:{hours:['415:00','407:30','521:30','441:00'],flights:[37,37,37,37]},
+    TK:{hours:['485:00','531:30','377:00','339:00'],flights:[44,44,44,44]},KC:{hours:['569:30','517:00','504:30','471:30'],flights:[38,38,38,38]},
+    QR:{hours:['1055:00','1054:00','867:30','709:00'],flights:[60,60,60,60]},AK:{hours:['186:00','305:00','318:00','374:00'],flights:[53,53,54,54]},
+    SU:{hours:['285:00','341:30','189:00','284:00'],flights:[37,37,37,37]},CHN:{hours:['1371:00','1475:00','1719:00','1540:30'],flights:[154,160,165,169]},
+    CHARTER:{hours:['173:30','207:30','221:30','180:00'],flights:[54,54,54,54]},SV:{hours:['221:00','201:30','129:00','88:00'],flights:[0,0,0,0]},
+    PG:{hours:['322:30','309:00','301:30','261:30'],flights:[123,123,124,125]},PVT:{hours:['137:00','94:00','56:00','101:00'],flights:[9,9,9,9]},
+    ADMINDOC:{hours:['43:00','61:30','59:00','76:30'],flights:[0,0,0,0]},PORTER:{hours:['865:30','809:00','710:00','674:00'],flights:[0,0,0,0]},PORTER_CREW:{hours:['279:30','268:00','353:30','344:30'],flights:[0,0,0,0]},OFFICE:{hours:['34:00','43:00','6:00','15:30'],flights:[0,0,0,0]},
+  }},
+  'Mar 2026':{weeks:['W1: 1-7 Mar','W2: 8-14 Mar','W3: 15-21 Mar','W4: 22-31 Mar'],flightCounts:[859,723,709,889],teams:{
+    EK:{hours:['406:00','251:30','332:00','275:00'],flights:[0,0,0,0]},SQ:{hours:['660:30','490:30','460:30','360:00'],flights:[60,58,59,83]},
+    EY:{hours:['522:30','326:30','394:30','308:30'],flights:[50,50,48,59]},TR:{hours:['741:00','480:00','448:30','330:30'],flights:[73,79,74,106]},
+    WY:{hours:['156:00','100:30','207:30','77:00'],flights:[53,50,51,68]},JQ:{hours:['723:30','420:00','413:30','327:30'],flights:[38,37,36,54]},
+    TK:{hours:['562:00','374:30','360:00','226:30'],flights:[47,48,47,58]},KC:{hours:['770:00','438:30','375:30','293:30'],flights:[33,34,34,51]},
+    QR:{hours:['490:00','165:30','53:00','34:00'],flights:[61,61,63,89]},AK:{hours:['484:00','271:30','176:00','183:00'],flights:[51,56,58,82]},
+    SU:{hours:['396:00','110:00','59:30','95:30'],flights:[73,76,75,108]},CHN:{hours:['1023:00','271:00','352:00','459:00'],flights:[136,120,106,128]},
+    CHARTER:{hours:['420:30','187:00','150:30','140:00'],flights:[0,0,0,0]},SV:{hours:['245:00','59:00','73:00','63:00'],flights:[0,0,0,0]},
+    PG:{hours:['399:00','224:30','237:00','172:00'],flights:[137,133,130,191]},PVT:{hours:['216:00','74:00','54:00','64:00'],flights:[10,14,7,15]},
+    ADMINDOC:{hours:['137:00','88:30','62:30','29:00'],flights:[0,0,0,0]},PORTER:{hours:['1407:00','682:30','565:00','452:30'],flights:[0,0,0,0]},PORTER_CREW:{hours:['346:30','205:30','164:30','113:30'],flights:[0,0,0,0]},OFFICE:{hours:['64:00','16:00','9:00','0:00'],flights:[0,0,0,0]},
+  }},
+  'Apr 2026':{weeks:['W1: 1-7 Apr','W2: 8-14 Apr','W3: 15-21 Apr','W4: 22-30 Apr'],flightCounts:[798,0,0,0],teams:{
+    EK:{hours:['412:00','0:00','0:00','0:00'],flights:[36,0,0,0]},SQ:{hours:['623:30','0:00','0:00','0:00'],flights:[60,0,0,0]},
+    EY:{hours:['586:30','0:00','0:00','0:00'],flights:[48,0,0,0]},TR:{hours:['856:30','0:00','0:00','0:00'],flights:[78,0,0,0]},
+    WY:{hours:['468:00','0:00','0:00','0:00'],flights:[52,0,0,0]},JQ:{hours:['596:30','0:00','0:00','0:00'],flights:[37,0,0,0]},
+    TK:{hours:['541:00','0:00','0:00','0:00'],flights:[47,0,0,0]},KC:{hours:['632:30','0:00','0:00','0:00'],flights:[34,0,0,0]},
+    QR:{hours:['768:00','0:00','0:00','0:00'],flights:[62,0,0,0]},AK:{hours:['347:30','0:00','0:00','0:00'],flights:[54,0,0,0]},
+    SU:{hours:['362:00','0:00','0:00','0:00'],flights:[54,0,0,0]},CHN:{hours:['1185:00','0:00','0:00','0:00'],flights:[137,0,0,0]},
+    CHARTER:{hours:['412:00','0:00','0:00','0:00'],flights:[42,0,0,0]},SV:{hours:['174:00','0:00','0:00','0:00'],flights:[0,0,0,0]},
+    PG:{hours:['358:30','0:00','0:00','0:00'],flights:[141,0,0,0]},PVT:{hours:['165:00','0:00','0:00','0:00'],flights:[11,0,0,0]},
+    ADMINDOC:{hours:['96:30','0:00','0:00','0:00'],flights:[0,0,0,0]},PORTER:{hours:['876:00','0:00','0:00','0:00'],flights:[0,0,0,0]},PORTER_CREW:{hours:['169:30','0:00','0:00','0:00'],flights:[0,0,0,0]},OFFICE:{hours:['32:00','0:00','0:00','0:00'],flights:[0,0,0,0]},
+  }},
+};
+
+let page='overview';
+const CH={};
+
+Chart.register(ChartDataLabels);
+
+function toMin(s){if(!s||s==='0:00')return 0;const p=s.split(':');return parseInt(p[0])*60+parseInt(p[1]);}
+function fmtH(m){const h=Math.floor(m/60),mn=m%60;return h.toLocaleString('en-US')+':'+String(mn).padStart(2,'0');}
+function fmtNum(v){return parseFloat(v).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:1});}
+function tmTotal(mk,tc){return DATA[mk].teams[tc]?DATA[mk].teams[tc].hours.reduce((a,v)=>a+toMin(v),0):0;}
+function mTotal(mk){return TEAMS.reduce((a,t)=>a+tmTotal(mk,t.code),0);}
+function allTotal(){return MONTHS.reduce((a,mk)=>a+mTotal(mk),0);}
+function teamAll(tc){return MONTHS.reduce((a,mk)=>a+tmTotal(mk,tc),0);}
+function topTm(mk){let mx=0,nm='',cl='';TEAMS.forEach(t=>{const m=tmTotal(mk,t.code);if(m>mx){mx=m;nm=t.name;cl=t.color;}});return{name:nm,min:mx,color:cl};}
+function topTmAll(){let mx=0,nm='';TEAMS.forEach(t=>{const m=teamAll(t.code);if(m>mx){mx=m;nm=t.name;}});return{name:nm,min:mx};}
+function peakMo(){let mx=0,nm='';MONTHS.forEach(mk=>{const g=mTotal(mk);if(g>mx){mx=g;nm=mk;}});return{name:nm,min:mx};}
+function dc(id){if(CH[id]){CH[id].destroy();delete CH[id];}}
+const GC='rgba(136,135,128,0.15)',TC='#888780';
+
+// ─── Modal helpers ───
+function showModal(title,sub){
+  document.getElementById('modalTitle').textContent=title;
+  document.getElementById('modalSub').textContent=sub;
+  document.getElementById('modalProgress').style.width='0%';
+  document.getElementById('modalStep').textContent='เตรียมข้อมูล...';
+  document.getElementById('exportModal').classList.add('show');
+}
+function updateModal(pct,step){
+  document.getElementById('modalProgress').style.width=pct+'%';
+  document.getElementById('modalStep').textContent=step;
+}
+function hideModal(){
+  document.getElementById('exportModal').classList.remove('show');
+}
+
+// ─── Core export engine ───
+async function captureTabAsPDFPages(targetPage, pdf, isFirst, onProgress){
+  go(targetPage);
+  await new Promise(r=>setTimeout(r,900)); // wait for charts to render
+
+  const isDark = window.matchMedia('(prefers-color-scheme:dark)').matches;
+  const bgColor = isDark ? '#1e1e1c' : '#ffffff';
+
+  const element = document.querySelector('.dash');
+  const canvas = await html2canvas(element, {
+    scale: 2,
+    useCORS: true,
+    logging: false,
+    backgroundColor: bgColor,
+    windowWidth: 1200,
+    ignoreElements: el => el.id === 'exportModal'
+  });
+
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 8;
+  const contentW = pageWidth - margin * 2;
+  const contentH = pageHeight - margin * 2;
+
+  const pxPerMm = canvas.width / contentW;
+  const sliceHeightPx = Math.round(contentH * pxPerMm);
+  const totalSlices = Math.ceil(canvas.height / sliceHeightPx);
+
+  for (let i = 0; i < totalSlices; i++) {
+    const sy = i * sliceHeightPx;
+    const sh = Math.min(sliceHeightPx, canvas.height - sy);
+    const sliceCanvas = document.createElement('canvas');
+    sliceCanvas.width = canvas.width;
+    sliceCanvas.height = sh;
+    const ctx = sliceCanvas.getContext('2d');
+    ctx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+    const imgData = sliceCanvas.toDataURL('image/jpeg', 0.92);
+    const sliceHmm = sh / pxPerMm;
+
+    if (!isFirst || i > 0) pdf.addPage();
+    isFirst = false;
+
+    // White/dark background fill
+    pdf.setFillColor(isDark ? '#1e1e1c' : '#ffffff');
+    pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+    pdf.addImage(imgData, 'JPEG', margin, margin, contentW, sliceHmm);
+
+    if (onProgress) onProgress(i + 1, totalSlices);
+  }
+  return false; // isFirst is now false
+}
+
+// ─── Export current tab ───
+window.exportCurrent = async function(){
+  const btn = document.getElementById('exportCurrentBtn');
+  const label = page === 'overview' ? 'Overview' : page;
+  showModal('กำลัง Export PDF...', `แท็บ: ${label}`);
+  btn.classList.add('loading');
+
+  try {
+    const {jsPDF} = window.jspdf;
+    const pdf = new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+    const savedPage = page;
+
+    updateModal(10, `กำลัง render ${label}...`);
+    await captureTabAsPDFPages(page, pdf, true, (slice, total) => {
+      updateModal(10 + Math.round((slice/total)*85), `หน้า ${slice}/${total}`);
+    });
+
+    updateModal(100, 'บันทึกไฟล์...');
+    await new Promise(r=>setTimeout(r,200));
+    const dateStr = new Date().toISOString().split('T')[0];
+    pdf.save(`OT-Dashboard_${label.replace(/ /g,'-')}_${dateStr}.pdf`);
+
+    go(savedPage);
+  } catch(err){
+    console.error('Export error:', err);
+    alert('Export ล้มเหลว: ' + err.message);
+  } finally {
+    btn.classList.remove('loading');
+    hideModal();
+  }
+};
+
+// ─── Export all tabs ───
+window.exportAll = async function(){
+  const btn = document.getElementById('exportAllBtn');
+  const allTabs = ['overview', ...MONTHS];
+  showModal('กำลัง Export PDF ทุกแท็บ...', `รวม ${allTabs.length} แท็บ`);
+  btn.classList.add('loading');
+
+  const savedPage = page;
+
+  try {
+    const {jsPDF} = window.jspdf;
+    const pdf = new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+    let isFirst = true;
+
+    for (let ti = 0; ti < allTabs.length; ti++) {
+      const tab = allTabs[ti];
+      const label = tab === 'overview' ? 'Overview' : tab;
+      const basePct = Math.round((ti / allTabs.length) * 90);
+      updateModal(basePct, `(${ti+1}/${allTabs.length}) ${label}...`);
+
+      isFirst = await captureTabAsPDFPages(tab, pdf, isFirst, (slice, total) => {
+        const p = basePct + Math.round((slice/total) * (90/allTabs.length));
+        updateModal(p, `${label} — หน้า ${slice}/${total}`);
+      });
+    }
+
+    updateModal(97, 'รวมไฟล์...');
+    await new Promise(r=>setTimeout(r,200));
+    const dateStr = new Date().toISOString().split('T')[0];
+    pdf.save(`OT-Dashboard_ALL_${dateStr}.pdf`);
+
+    updateModal(100, 'เสร็จแล้ว!');
+    await new Promise(r=>setTimeout(r,400));
+    go(savedPage);
+  } catch(err){
+    console.error('Export all error:', err);
+    alert('Export ล้มเหลว: ' + err.message);
+  } finally {
+    btn.classList.remove('loading');
+    hideModal();
+  }
+};
+
+function renderOverview(){
+  const total=allTotal(),top=topTmAll(),peak=peakMo();
+  document.getElementById('content').innerHTML=`
+  <div class="g5">
+    ${MONTHS.map((mk,i)=>`<div class="metric" style="border-top:2px solid ${MCOLS[i]}">
+      <div class="metric-label">${mk}</div>
+      <div class="metric-val" style="font-size:17px">${fmtH(mTotal(mk))}</div>
+      <div class="metric-sub">hrs total</div>
+    </div>`).join('')}
+  </div>
+  <div class="g4" style="margin-bottom:1rem">
+    <div class="metric"><div class="metric-label">Grand total (7 months)</div><div class="metric-val">${fmtH(total)}</div><div class="metric-sub">Oct 2025 – Apr 2026</div></div>
+    <div class="metric"><div class="metric-label">Top team overall</div><div class="metric-val" style="font-size:15px">${top.name}</div><div class="metric-sub">${fmtH(top.min)} hrs</div></div>
+    <div class="metric"><div class="metric-label">Peak month</div><div class="metric-val" style="font-size:15px">${peak.name}</div><div class="metric-sub">${fmtH(peak.min)} hrs</div></div>
+    <div class="metric"><div class="metric-label">Teams tracked</div><div class="metric-val">${TEAMS.length}</div><div class="metric-sub">active teams</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Total OT per month &amp; Flight count</div>
+    <div style="position:relative;width:100%;height:240px;"><canvas id="chtMo"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Monthly comparison — change from month to month</div>
+    <div style="position:relative;width:100%;height:200px;"><canvas id="chtChg"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Monthly OT trend per team</div>
+    <div style="position:relative;width:100%;height:320px;"><canvas id="chtTrend"></canvas></div>
+    <div class="leg" id="ovleg"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Team totals — all 7 months combined</div>
+    <div class="table-wrap"><table id="ovtbl"></table></div>
+  </div>`;
+
+  dc('chtMo');
+  const flightCounts=MONTHS.map(mk=>DATA[mk].flightCounts.reduce((a,b)=>a+b,0));
+  CH['chtMo']=new Chart(document.getElementById('chtMo'),{type:'bar',
+    data:{labels:MONTHS,datasets:[{
+      label:'OT Hours',data:MONTHS.map(mk=>parseFloat((mTotal(mk)/60).toFixed(1))),
+      backgroundColor:MCOLS,borderRadius:4,borderSkipped:false,yAxisID:'y',order:2,
+      datalabels:{anchor:'end',align:'top',color:TC,font:{size:10,weight:500},formatter:v=>fmtNum(v)+'h'}
+    },{
+      label:'Number of Flights',data:flightCounts,type:'line',
+      borderColor:'#ef4444',backgroundColor:'#ef444422',borderWidth:2.5,
+      pointRadius:4,pointBackgroundColor:'#ef4444',tension:0.3,fill:true,
+      yAxisID:'y1',order:1,
+      datalabels:{anchor:'end',align:'top',color:'#ef4444',font:{size:9,weight:500},formatter:v=>v.toLocaleString('en-US')}
+    }]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:true,position:'top',labels:{color:TC,font:{size:11},padding:12,usePointStyle:true}},
+        tooltip:{callbacks:{label:c=>{if(c.dataset.yAxisID==='y1')return c.dataset.label+': '+fmtNum(c.raw)+' flights';return c.dataset.label+': '+fmtNum(c.raw)+' hrs';}}}},
+      scales:{x:{ticks:{color:TC,font:{size:10}},grid:{display:false}},
+        y:{position:'left',min:0,max:60000,ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC},title:{display:true,text:'OT Hours',color:TC,font:{size:11,weight:500}}},
+        y1:{position:'right',min:0,max:16000,ticks:{color:'#ef4444',font:{size:10},callback:v=>fmtNum(v)},grid:{display:false},title:{display:true,text:'Flights',color:'#ef4444',font:{size:11,weight:500}}}}}});
+
+  dc('chtChg');
+  const mTots=MONTHS.map(mk=>mTotal(mk));
+  const chgData=[];
+  for(let i=1;i<mTots.length;i++){
+    const chg=mTots[i]-mTots[i-1],pct=Math.round((chg/mTots[i-1])*1000)/10;
+    chgData.push({val:chg,pct:pct,label:MONTHS[i-1]+' → '+MONTHS[i]});
+  }
+  CH['chtChg']=new Chart(document.getElementById('chtChg'),{type:'bar',
+    data:{labels:chgData.map(c=>c.label),datasets:[{
+      data:chgData.map(c=>parseFloat((c.val/60).toFixed(1))),
+      backgroundColor:chgData.map(c=>c.val>=0?'#10b981':'#ef4444'),
+      borderRadius:4,borderSkipped:false,
+      datalabels:{anchor:'end',align:'right',color:TC,font:{size:9,weight:500},formatter:v=>fmtNum(v)+'h'}
+    }]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const idx=c.dataIndex;const pct=chgData[idx].pct;return(chgData[idx].val>=0?'+':'')+fmtNum(chgData[idx].val/60)+'h ('+pct+'%)';}}}},
+      scales:{x:{ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC}},y:{ticks:{color:TC,font:{size:11}},grid:{display:false}}}}});
+
+  dc('chtTrend');
+  CH['chtTrend']=new Chart(document.getElementById('chtTrend'),{type:'line',
+    data:{labels:MONTHS,datasets:TEAMS.map((t,idx)=>{const col=TRENDCOLORS[idx%TRENDCOLORS.length];return{label:t.name,
+      data:MONTHS.map(mk=>parseFloat((tmTotal(mk,t.code)/60).toFixed(1))),
+      borderColor:col,backgroundColor:col+'22',borderWidth:2.5,pointRadius:4,
+      pointBackgroundColor:col,pointBorderColor:'#fff',pointBorderWidth:2,tension:0.35,fill:false,
+      datalabels:{anchor:'end',align:'top',color:col,font:{size:10,weight:600},formatter:v=>fmtNum(v)+'h',offset:6,display:true}}})},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmtNum(c.raw)+'h'}}},
+      scales:{x:{ticks:{color:TC,font:{size:10}},grid:{display:false}},y:{ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC}}}}});
+
+  document.getElementById('ovleg').innerHTML=TEAMS.map((t,idx)=>{const col=TRENDCOLORS[idx%TRENDCOLORS.length];
+    return`<div class="legitem"><div class="legdot" style="background:${col}"></div><span style="color:${col};font-weight:500">${t.name}</span></div>`}).join('');
+
+  const allMax=Math.max(...TEAMS.map(t=>teamAll(t.code)));
+  let tbl='<thead><tr><th>Team</th><th>Airlines</th>';
+  MONTHS.forEach(mk=>tbl+=`<th style="text-align:right">${mk}</th>`);
+  tbl+='<th style="text-align:right">Grand total</th></tr></thead><tbody>';
+  [...TEAMS].sort((a,b)=>teamAll(b.code)-teamAll(a.code)).forEach(t=>{
+    const tot=teamAll(t.code),pct=Math.round(tot/allMax*100);
+    tbl+=`<tr><td><span class="badge" style="background:${t.color}22;color:${t.color}">${t.name}</span></td>
+      <td style="color:var(--text-secondary);font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis">${t.airlines}</td>`;
+    MONTHS.forEach(mk=>tbl+=`<td style="text-align:right">${fmtH(tmTotal(mk,t.code))}</td>`);
+    tbl+=`<td style="text-align:right"><div class="barcell"><div class="barbg"><div class="barfill" style="width:${pct}%;background:${t.color}"></div></div><span style="min-width:55px;text-align:right;font-weight:500">${fmtH(tot)}</span></div></td></tr>`;
+  });
+  tbl+='<tr class="total-row"><td colspan="2">Grand Total</td>';
+  MONTHS.forEach(mk=>tbl+=`<td style="text-align:right">${fmtH(mTotal(mk))}</td>`);
+  tbl+=`<td style="text-align:right;font-weight:500">${fmtH(allTotal())}</td></tr></tbody>`;
+  document.getElementById('ovtbl').innerHTML=tbl;
+}
+
+function renderMonth(mk){
+  const gt=mTotal(mk),top=topTm(mk);
+  const d=DATA[mk];
+  const wTots=d.weeks.map((w,wi)=>TEAMS.reduce((a,t)=>a+toMin(d.teams[t.code]?d.teams[t.code].hours[wi]:'0:00'),0));
+  const peakIdx=wTots.indexOf(Math.max(...wTots));
+  const remarks={
+    'Oct 2025':'Public Holidays: Mon, Oct 13 (King Bhumibol Memorial Day) • Thu, Oct 23 (Chulalongkorn Day)',
+    'Nov 2025':'','Dec 2025':'Public Holidays: Fri, Dec 5 (HM King Bhumibol\'s Birthday / Father\'s Day) • Wed, Dec 31 (New Year\'s Eve)',
+    'Jan 2026':'Public Holiday: Thu, Jan 1 (New Year\'s Day)','Feb 2026':'',
+    'Mar 2026':'Data shown for weeks 1–31 Mar 2026 • Public Holiday: Tue, Mar 3 (Makha Bucha Day)',
+    'Apr 2026':'Data for Week 1 (1-7 Apr) only • Public Holiday: Mon, Apr 6 (Makha Bucha Day)'
+  };
+
+  document.getElementById('content').innerHTML=`
+  <div class="g4">
+    <div class="metric"><div class="metric-label">Total OT — ${mk}</div><div class="metric-val">${fmtH(gt)}</div><div class="metric-sub">hrs across all teams</div></div>
+    <div class="metric"><div class="metric-label">Top team</div><div class="metric-val" style="font-size:15px">${top.name}</div><div class="metric-sub">${fmtH(top.min)} hrs</div></div>
+    <div class="metric"><div class="metric-label">Peak week</div><div class="metric-val" style="font-size:14px">${d.weeks[peakIdx].replace(/^W\d+: /,'')}</div><div class="metric-sub">${fmtH(wTots[peakIdx])} hrs</div></div>
+    <div class="metric"><div class="metric-label">Teams tracked</div><div class="metric-val">${TEAMS.length}</div><div class="metric-sub">active teams</div></div>
+  </div>
+  ${remarks[mk]?`<div class="card" style="background:var(--bg-info);border-color:var(--text-info);padding:12px 16px;margin-bottom:1rem"><div style="font-size:12px;color:var(--text-info);line-height:1.4">${remarks[mk]}</div></div>`:''}
+  <div class="card">
+    <div class="card-title">Monthly Overtime Hours vs Number of Flights — ${mk}</div>
+    <div class="leg" style="margin-bottom:12px" id="mleg"></div>
+    <div style="position:relative;width:100%;height:520px;"><canvas id="mChart"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Team breakdown — weekly detail</div>
+    <div class="table-wrap"><table id="mtbl"></table></div>
+  </div>`;
+
+  document.getElementById('mleg').innerHTML=d.weeks.map((w,wi)=>
+    `<div class="legitem"><div class="legdot" style="background:${WEEK_COLORS[wi]}"></div>${w}</div>`).join('')+
+    `<div class="legitem"><div class="legdot" style="background:#ef4444"></div>Number of Flights</div>`;
+
+  dc('mChart');
+  const weeklyTotals=d.weeks.map((w,wi)=>TEAMS.reduce((a,t)=>a+(d.teams[t.code]?toMin(d.teams[t.code].hours[wi]):0),0)/60);
+  const maxWeekly=Math.max(...weeklyTotals);
+  const maxFlights=Math.max(...d.flightCounts);
+  CH['mChart']=new Chart(document.getElementById('mChart'),{type:'bar',
+    data:{labels:d.weeks,datasets:[{
+      label:'Total OT Hours',data:weeklyTotals,backgroundColor:'#3b82f6',
+      borderRadius:3,borderSkipped:false,yAxisID:'y',order:2,
+      datalabels:{anchor:'end',align:'top',color:TC,font:{size:11,weight:600},formatter:v=>v!==null&&v!==undefined?fmtNum(v)+'h':'',offset:8,display:'auto'}
+    },{
+      label:'Number of Flights',data:d.flightCounts,type:'line',
+      borderColor:'#ef4444',backgroundColor:'transparent',borderWidth:3,
+      pointRadius:6,pointBackgroundColor:'#ef4444',pointBorderColor:'#fff',pointBorderWidth:2.5,
+      tension:0.4,fill:false,yAxisID:'y1',order:1,
+      datalabels:{anchor:'end',align:'top',color:'#ef4444',font:{size:10,weight:700},formatter:v=>v!==null&&v!==undefined?v.toLocaleString('en-US'):'',offset:8,display:'auto'}
+    }]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},datalabels:{display:true},
+        tooltip:{callbacks:{label:c=>{if(c.dataset.yAxisID==='y1')return c.dataset.label+': '+fmtNum(c.raw)+' flights';return c.dataset.label+': '+fmtNum(c.raw)+' hrs';}}}},
+      scales:{x:{ticks:{color:TC,font:{size:10}},grid:{display:false}},
+        y:{position:'left',min:0,max:Math.ceil(maxWeekly*1.15/1000)*1000,ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC},title:{display:true,text:'OT Hours',color:TC,font:{size:11,weight:500}}},
+        y1:{position:'right',min:0,max:Math.ceil(maxFlights*1.15/500)*500,ticks:{color:'#ef4444',font:{size:10},callback:v=>fmtNum(v)},grid:{display:false},title:{display:true,text:'Flights',color:'#ef4444',font:{size:11,weight:500}}}}}});
+
+  const maxTot=Math.max(...TEAMS.map(t=>d.teams[t.code]?d.teams[t.code].hours.reduce((a,v)=>a+toMin(v),0):0));
+  let tbl='<thead><tr><th>Team</th><th>Airlines</th>';
+  d.weeks.forEach(w=>{const wl=w.split(':')[1].trim();tbl+=`<th colspan="2" style="text-align:center;border-right:0.5px solid var(--border)">${wl}</th>`;});
+  tbl+='<th style="text-align:right">Total</th></tr><tr><th></th><th></th>';
+  d.weeks.forEach(()=>{tbl+=`<th style="text-align:center;font-size:10px;font-weight:400;color:var(--text-tertiary)">OT hrs</th><th style="text-align:center;font-size:10px;font-weight:400;color:var(--text-tertiary);border-right:0.5px solid var(--border)">Flights</th>`;});
+  tbl+='<th></th></tr></thead><tbody>';
+  [...TEAMS].sort((a,b)=>{
+    const ta=d.teams[a.code]?d.teams[a.code].hours.reduce((s,v)=>s+toMin(v),0):0;
+    const tb=d.teams[b.code]?d.teams[b.code].hours.reduce((s,v)=>s+toMin(v),0):0;
+    return tb-ta;
+  }).forEach(t=>{
+    if(!d.teams[t.code])return;
+    const vals=d.teams[t.code].hours;
+    const flights=d.teams[t.code].flights||[0,0,0,0];
+    const tot=vals.reduce((a,v)=>a+toMin(v),0),pct=Math.round(tot/maxTot*100);
+    tbl+=`<tr><td><span class="badge" style="background:${t.color}22;color:${t.color}">${t.name}</span></td>
+      <td style="color:var(--text-secondary);font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis">${t.airlines}</td>`;
+    vals.forEach((v,wi)=>{tbl+=`<td style="text-align:center;font-size:11px;font-weight:500">${v||'0:00'}</td><td style="text-align:center;font-size:11px;color:var(--text-secondary);border-right:0.5px solid var(--border)">${flights[wi].toLocaleString('en-US')}</td>`;});
+    tbl+=`<td style="text-align:right"><div class="barcell"><div class="barbg"><div class="barfill" style="width:${pct}%;background:${t.color}"></div></div><span style="min-width:55px;text-align:right;font-weight:500">${fmtH(tot)}</span></div></td></tr>`;
+  });
+  const wt=d.weeks.map((w,wi)=>TEAMS.reduce((a,t)=>a+(d.teams[t.code]?toMin(d.teams[t.code].hours[wi]):0),0));
+  tbl+='<tr class="total-row"><td colspan="2">Grand Total</td>';
+  wt.forEach((v,wi)=>{tbl+=`<td style="text-align:center;font-weight:500">${fmtH(v)}</td><td style="text-align:center;font-weight:500;border-right:0.5px solid var(--border)">${d.flightCounts[wi].toLocaleString('en-US')}</td>`;});
+  tbl+=`<td style="text-align:right;font-weight:500">${fmtH(gt)}</td></tr></tbody>`;
+  document.getElementById('mtbl').innerHTML=tbl;
+}
+
+function renderTabs(){
+  document.getElementById('tabs').innerHTML=
+    `<button class="tab ov${page==='overview'?' active':''}" onclick="go('overview')">Overview</button>`+
+    MONTHS.map(m=>`<button class="tab${page===m?' active':''}" onclick="go('${m}')">${m}</button>`).join('');
+}
+
+window.go=function(p){
+  page=p;
+  Object.keys(CH).forEach(id=>dc(id));
+  renderTabs();
+  if(p==='overview') renderOverview();
+  else renderMonth(p);
+};
+
+renderTabs();
+renderOverview();
+</script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9ecb8441275b98df',t:'MTc3NjI2MjA0Ny4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
