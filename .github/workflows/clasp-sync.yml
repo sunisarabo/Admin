@@ -1,0 +1,51 @@
+name: Sync to Apps Script
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'service-request/**'
+      - '.github/workflows/clasp-sync.yml'
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Also bump Web App deployment version (URL stays the same)?'
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./service-request
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Restore clasp credentials
+        run: echo "$CLASPRC_JSON" > ~/.clasprc.json
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        working-directory: .
+
+      - name: clasp push (source → Apps Script HEAD)
+        run: clasp push --force
+
+      - name: clasp deploy (advance Web App version)
+        if: ${{ inputs.deploy }}
+        env:
+          DEPLOYMENT_ID: ${{ secrets.CLASP_DEPLOYMENT_ID }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -n "$DEPLOYMENT_ID" ]; then
+            clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "Auto-deploy ${SHA::7}"
+          else
+            clasp deploy --description "Auto-deploy ${SHA::7}"
+          fi

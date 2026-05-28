@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Service Request Ticketing · ระบบคำร้องส่วนกลาง · Passenger Services</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<style>
+  :root {
+    --navy:#0F2A4F; --navy-deep:#0A1F3D; --accent:#1B6BCC; --accent-light:#3B82F6;
+    --bg:#F7F9FC; --border:#E5E9F0; --text:#1F2937; --muted:#6B7280;
+  }
+  html, body { font-family:'Inter','Sarabun',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); }
+  .navy-bg { background: linear-gradient(180deg,#0F2A4F 0%,#0A1F3D 100%); }
+  .card { background:#fff; border:1px solid var(--border); border-radius:12px; box-shadow:0 1px 3px rgba(15,42,79,0.04),0 1px 2px rgba(15,42,79,0.03); }
+  .card-hover:hover { box-shadow:0 4px 12px rgba(15,42,79,0.08); transform:translateY(-1px); transition:all .15s ease; }
+  .input { width:100%; padding:10px 14px; border:1px solid #D1D5DB; border-radius:8px; background:#fff; font-size:14px; transition:all .15s; }
+  .input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(27,107,204,0.12); }
+  .input.error { border-color:#EF4444; box-shadow:0 0 0 3px rgba(239,68,68,0.12); }
+  .label { display:block; font-size:13px; font-weight:500; color:#374151; margin-bottom:6px; }
+  .label-en { font-size:11px; color:#9CA3AF; font-weight:400; margin-left:6px; }
+  .req { color:#EF4444; margin-left:2px; }
+  .btn { padding:9px 18px; border-radius:8px; font-weight:500; font-size:14px; transition:all .15s; cursor:pointer; border:none; display:inline-flex; align-items:center; gap:6px; }
+  .btn-primary { background:var(--navy); color:#fff; }
+  .btn-primary:hover { background:var(--navy-deep); }
+  .btn-secondary { background:#fff; color:var(--text); border:1px solid #D1D5DB; }
+  .btn-secondary:hover { background:#F3F4F6; }
+  .btn-ghost { background:transparent; color:var(--navy); }
+  .btn-ghost:hover { background:rgba(15,42,79,0.06); }
+  .pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:500; }
+  .stage-badge { padding:4px 12px; border-radius:6px; font-size:12px; font-weight:600; }
+  .nav-link { padding:8px 14px; border-radius:6px; font-size:14px; font-weight:500; color:#CBD5E1; transition:all .15s; cursor:pointer; }
+  .nav-link:hover { background:rgba(255,255,255,0.08); color:#fff; }
+  .nav-link.active { background:rgba(255,255,255,0.12); color:#fff; }
+  .step-circle { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:14px; }
+  .step-circle.done { background:var(--accent); color:#fff; }
+  .step-circle.active { background:var(--navy); color:#fff; box-shadow:0 0 0 4px rgba(15,42,79,0.12); }
+  .step-circle.todo { background:#E5E7EB; color:#9CA3AF; }
+  .checklist-item { display:flex; align-items:flex-start; gap:10px; padding:8px 12px; border-radius:6px; transition:all .15s; cursor:pointer; }
+  .checklist-item:hover { background:#F9FAFB; }
+  .checklist-item.done .item-text { color:#9CA3AF; text-decoration:line-through; }
+  .kanban-col { min-width:280px; flex:1; background:#F1F4F9; border-radius:10px; padding:12px; }
+  .kanban-card { background:#fff; border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:8px; cursor:pointer; transition:all .15s; }
+  .kanban-card:hover { box-shadow:0 4px 12px rgba(15,42,79,0.08); transform:translateY(-1px); }
+  .modal { position:fixed; inset:0; background:rgba(15,23,42,0.5); display:flex; align-items:center; justify-content:center; z-index:50; padding:20px; }
+  .modal-content { background:#fff; border-radius:14px; max-width:760px; width:100%; max-height:90vh; overflow:hidden; display:flex; flex-direction:column; }
+  .scrollbar::-webkit-scrollbar { width:8px; height:8px; }
+  .scrollbar::-webkit-scrollbar-track { background:#F1F4F9; border-radius:8px; }
+  .scrollbar::-webkit-scrollbar-thumb { background:#CBD5E1; border-radius:8px; }
+  .scrollbar::-webkit-scrollbar-thumb:hover { background:#94A3B8; }
+  .hidden { display:none !important; }
+  .fade-in { animation: fadeIn .25s ease; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+  .toast { position:fixed; top:80px; right:20px; background:#fff; border:1px solid var(--border); border-left:4px solid #10B981; padding:14px 18px; border-radius:10px; box-shadow:0 8px 24px rgba(15,42,79,0.12); display:flex; align-items:center; gap:10px; z-index:60; animation: fadeIn .2s ease; }
+  .toast.error { border-left-color:#EF4444; }
+  .progress-track { height:6px; background:#E5E7EB; border-radius:999px; overflow:hidden; }
+  .progress-fill { height:100%; background:linear-gradient(90deg,#1B6BCC 0%,#0F2A4F 100%); border-radius:999px; transition: width .35s ease; }
+  .stat-bar { height:8px; background:#F1F4F9; border-radius:4px; overflow:hidden; }
+  .stat-bar-fill { height:100%; background:var(--accent); border-radius:4px; }
+  .identity-card { background:linear-gradient(135deg,#EEF4FB 0%,#F8FAFC 100%); border:1px solid #DBE6F3; }
+</style>
+</head>
+<body>
+
+<!-- ========== TOP NAV ========== -->
+<nav class="navy-bg text-white sticky top-0 z-40 shadow-lg">
+  <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center">
+        <i data-lucide="ticket" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <div class="font-semibold text-sm leading-tight">Service Request Ticketing</div>
+        <div class="text-xs text-slate-300 leading-tight">ระบบคำร้องส่วนกลาง · Passenger Services</div>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-1">
+      <div class="nav-link active" data-page="admin">
+        <i data-lucide="layout-dashboard" class="w-4 h-4 inline mr-1"></i>
+        Admin Dashboard
+      </div>
+      <div class="nav-link" data-page="track">
+        <i data-lucide="search" class="w-4 h-4 inline mr-1"></i>
+        ติดตามสถานะ <span class="text-xs text-slate-400 ml-1">Track</span>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button id="langToggle" class="text-xs px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 transition">
+        🌐 TH | EN
+      </button>
+      <div class="text-right hidden md:block">
+        <div class="text-xs text-slate-300">Signed in as</div>
+        <div class="text-sm font-medium" id="navUserEmail">hktadminpsa@aotga.com</div>
+      </div>
+      <div class="w-9 h-9 rounded-full bg-amber-400 text-amber-900 font-bold flex items-center justify-center" id="navUserInitial">A</div>
+    </div>
+  </div>
+</nav>
+
+<!-- ========== MAIN ========== -->
+<main class="max-w-7xl mx-auto px-6 py-8">
+<!-- =====================================================================
+     PAGE 2: TRACK STATUS
+     ===================================================================== -->
+<section id="page-track" class="fade-in hidden">
+  <h1 class="text-2xl font-bold text-slate-900 mb-1">ติดตามสถานะคำร้อง <span class="text-base font-normal text-slate-500">Track Status</span></h1>
+  <p class="text-sm text-slate-600 mb-6">ค้นด้วย Ticket ID / Email หรือ browse ตามแผนก-สถานะ (เปิดให้แผนกอื่นๆ ตามงานข้ามแผนกได้)</p>
+
+  <div class="card p-6 mb-6">
+    <div class="flex flex-wrap gap-3 items-end">
+      <div class="flex-1 min-w-[240px]">
+        <label class="label text-xs">ค้นหา</label>
+        <input type="text" class="input" id="trackQuery" placeholder="เช่น KP-2026-FIN-00012 หรือ your@email.com">
+      </div>
+      <div>
+        <label class="label text-xs">แผนก / Dept</label>
+        <select class="input" id="trackDept" style="min-width:160px">
+          <option value="">ทุกแผนก / All</option>
+          <option value="KP">KP — Passenger Services</option>
+          <option value="LP">LP — Special Services</option>
+          <option value="LL">LL — Baggage Services</option>
+        </select>
+      </div>
+      <div>
+        <label class="label text-xs">สถานะ / Stage</label>
+        <select class="input" id="trackStage" style="min-width:180px">
+          <option value="">ทุกสถานะ / All</option>
+          <option value="__OPEN__">เปิดอยู่ทั้งหมด (S1-S5)</option>
+          <option value="S1_Received">S1 รับเรื่อง</option>
+          <option value="S2_Reviewing">S2 ตรวจสอบ</option>
+          <option value="S3_Assigned">S3 มอบหมายแล้ว</option>
+          <option value="S4_Processing">S4 กำลังดำเนินการ</option>
+          <option value="S5_Sent">S5 ส่งออก</option>
+          <option value="S6_Closed">S6 ปิดเคส</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" id="btnTrack"><i data-lucide="search" class="w-4 h-4"></i> ค้นหา / Search</button>
+      <button class="btn btn-secondary" id="btnTrackReset"><i data-lucide="x" class="w-4 h-4"></i> ล้าง</button>
+    </div>
+    <div id="trackSummary" class="text-xs text-slate-500 mt-3 hidden"></div>
+  </div>
+
+  <div id="trackResults"></div>
+</section>
+
+<!-- =====================================================================
+     PAGE 3: ADMIN DASHBOARD
+     ===================================================================== -->
+<section id="page-admin" class="fade-in hidden">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
+      <p class="text-sm text-slate-600 mt-1">จัดการคำร้องทั้งหมด · มอบหมายงาน · ติดตามขั้นตอน · ตรวจ checklist</p>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn btn-secondary" id="btnViewMine"><i data-lucide="user-check" class="w-4 h-4"></i> งานของฉัน</button>
+      <button class="btn btn-secondary" id="btnViewAll"><i data-lucide="layers" class="w-4 h-4"></i> งานทั้งหมด</button>
+      <button class="btn btn-primary"><i data-lucide="download" class="w-4 h-4"></i> Export</button>
+    </div>
+  </div>
+
+  <!-- KPI cards -->
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+    <div class="card p-5">
+      <div class="text-xs text-slate-500 mb-1">Open Tickets</div>
+      <div class="text-3xl font-bold text-slate-900">27</div>
+      <div class="text-xs text-emerald-600 mt-1">↓ 12% from last week</div>
+    </div>
+    <div class="card p-5">
+      <div class="text-xs text-slate-500 mb-1">My Open</div>
+      <div class="text-3xl font-bold text-blue-600">8</div>
+      <div class="text-xs text-slate-500 mt-1">2 urgent · 1 critical</div>
+    </div>
+    <div class="card p-5">
+      <div class="text-xs text-slate-500 mb-1">Overdue</div>
+      <div class="text-3xl font-bold text-red-600">3</div>
+      <div class="text-xs text-red-600 mt-1">SLA breach risk</div>
+    </div>
+    <div class="card p-5">
+      <div class="text-xs text-slate-500 mb-1">Closed This Week</div>
+      <div class="text-3xl font-bold text-emerald-600">42</div>
+      <div class="text-xs text-emerald-600 mt-1">↑ 18% efficiency</div>
+    </div>
+    <div class="card p-5">
+      <div class="text-xs text-slate-500 mb-1">Avg Close Time</div>
+      <div class="text-3xl font-bold text-slate-900">1.8d</div>
+      <div class="text-xs text-slate-500 mt-1">Target: ≤ 3 days</div>
+    </div>
+  </div>
+
+  <!-- Admin Workload + Cat distribution -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <div class="card p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-slate-900">Admin Workload</h3>
+        <span class="text-xs text-slate-500">Active tickets per admin</span>
+      </div>
+      <div class="space-y-3" id="workloadList"></div>
+    </div>
+    <div class="card p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold text-slate-900">By Category</h3>
+        <span class="text-xs text-slate-500">Open tickets</span>
+      </div>
+      <div class="space-y-3" id="catList"></div>
+    </div>
+  </div>
+
+  <!-- Kanban Board -->
+  <div class="card p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-base font-semibold text-slate-900">Workflow Board · 6 Stages</h3>
+      <div class="flex gap-2 text-xs">
+        <select class="input" style="padding:6px 12px;width:auto">
+          <option>ทุกหมวด / All Categories</option>
+          <option>HR — Human Resources</option>
+          <option>FIN — Finance</option>
+          <option>PRC — Procurement</option>
+          <option>MNT — Maintenance</option>
+        </select>
+        <select class="input" style="padding:6px 12px;width:auto">
+          <option>ทุก Admin / All Admins</option>
+          <option>My Tickets</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex gap-3 overflow-x-auto scrollbar pb-3" id="kanban"></div>
+  </div>
+</section>
+
+</main>
+
+<!-- ========== TICKET DETAIL MODAL ========== -->
+<div id="modalOverlay" class="modal hidden">
+  <div class="modal-content">
+    <div class="navy-bg text-white px-6 py-4 flex items-center justify-between">
+      <div>
+        <div class="flex items-center gap-2">
+          <span id="m_id" class="font-mono text-sm bg-white/10 px-2 py-0.5 rounded">KP-2026-FIN-00012</span>
+          <span id="m_prio" class="stage-badge" style="background:#FBBF24;color:#78350F">Urgent</span>
+        </div>
+        <h2 id="m_title" class="text-lg font-semibold mt-2">ค่าปรับ ตม. SCOOT TR2123 25 พ.ค.</h2>
+      </div>
+      <button id="btnCloseModal" class="text-white/70 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto scrollbar p-6">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 text-sm">
+        <div>
+          <div class="text-xs text-slate-500 mb-1">แผนกผู้ส่ง</div>
+          <div class="font-medium">KP — Passenger Services</div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 mb-1">หมวด</div>
+          <div class="font-medium">FIN-2.1 เงินทดรอง</div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 mb-1">ผู้ส่งคำร้อง</div>
+          <div class="font-medium">สมชาย ใจดี</div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 mb-1">ส่งเมื่อ</div>
+          <div class="font-medium">25 พ.ค. 2026 · 14:32</div>
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <h3 class="text-sm font-semibold text-slate-700 mb-3">ขั้นตอน / Workflow Stages</h3>
+        <div class="flex gap-1" id="stageBar"></div>
+      </div>
+
+      <div class="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-lg">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-sm font-semibold text-slate-700">มอบหมายให้ / Assigned To</div>
+          <span class="text-xs text-slate-500" id="m_assignStatus">—</span>
+        </div>
+        <div class="flex items-center gap-3 mb-3" id="m_assigneeBox">
+          <div class="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center" id="m_assigneeAvatar">?</div>
+          <div class="flex-1">
+            <div class="font-medium text-sm" id="m_assigneeName">— ยังไม่ได้มอบหมาย —</div>
+            <div class="text-xs text-slate-500" id="m_assigneeMeta"></div>
+          </div>
+        </div>
+        <!-- Distribute / Re-assign — supervisor เท่านั้น -->
+        <div class="pt-3 border-t border-blue-100" id="m_distributeBox">
+          <div class="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1">
+            <i data-lucide="users" class="w-3 h-3"></i>
+            กระจายงาน / Distribute (Supervisor)
+          </div>
+          <div class="flex gap-2">
+            <select class="input flex-1" id="m_assignSelect" style="padding:8px 12px;font-size:13px">
+              <option value="">— เลือกพนักงาน —</option>
+            </select>
+            <button class="btn btn-primary" id="m_btnAssign" style="padding:8px 14px;font-size:13px">
+              <i data-lucide="send" class="w-3 h-3"></i> มอบหมาย
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold text-slate-700">Checklist · ความคืบหน้า</h3>
+          <span class="text-xs text-slate-500"><span id="ckProgress">5</span>/<span id="ckTotal">11</span> เสร็จแล้ว</span>
+        </div>
+        <div class="progress-track mb-4"><div class="progress-fill" style="width:45%"></div></div>
+        <div class="space-y-1" id="checklistBox"></div>
+      </div>
+
+      <div class="mb-6">
+        <h3 class="text-sm font-semibold text-slate-700 mb-3">รายละเอียดคำร้อง</h3>
+        <div class="text-sm text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-lg">
+          ขอเบิกเงินทดรองชำระค่าปรับ ตม. ภูเก็ต ของผู้โดยสารสายการบิน SCOOT เที่ยวบิน TR2123 จำนวน 5,000 บาท เมื่อวันที่ 25 พ.ค. 2026 พร้อมแนบใบเสร็จและสำเนา passport
+        </div>
+      </div>
+
+      <div>
+        <h3 class="text-sm font-semibold text-slate-700 mb-2">หมายเหตุ / Internal Note</h3>
+        <textarea class="input" rows="2" placeholder="เพิ่ม note สำหรับทีม..."></textarea>
+      </div>
+    </div>
+
+    <div class="border-t border-slate-200 px-6 py-3 flex items-center justify-between bg-slate-50">
+      <div class="text-xs text-slate-500">Updated · เมื่อกี้</div>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary"><i data-lucide="message-square" class="w-4 h-4"></i> ตอบกลับผู้ส่ง</button>
+        <button class="btn btn-primary"><i data-lucide="arrow-right-circle" class="w-4 h-4"></i> เลื่อน Stage ถัดไป</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden">
+  <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-500"></i>
+  <div>
+    <div class="text-sm font-medium text-slate-900" id="toastTitle">บันทึกแล้ว</div>
+    <div class="text-xs text-slate-500" id="toastBody"></div>
+  </div>
+</div>
+
+<!-- ========== SCRIPT ========== -->
+<script>
+// ===== STAFF ROSTER (seed; in production มาจาก backend getMasterData().currentUser) =====
+// 2-way shared inbox: login ด้วย email หรือ email_alt ก็ได้, notification เด้งทั้ง 2 inbox
+const STAFF_ROSTER = [
+  { emp:'2100935', title:'นางสาว', first:'พัชรินทร์',  last:'กริชสั้น',     dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Senior Administrative Officer', nick:'นัตตี้', email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
+  { emp:'2202011', title:'นางสาว', first:'สุนิศรา',    last:'บุญยัง',       dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Supervisor',     nick:'ไอซ์',   email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
+  { emp:'2506243', title:'นาย',    first:'พุฒิพงษ์',  last:'ทิพย์เขต',     dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Officer',        nick:'แม็ค',   email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
+  { emp:'2506762', title:'นางสาว', first:'กาญจนาพร',  last:'เภรินทวงค์',   dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Officer',        nick:'ฟลุ๊ค',  email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
+  { emp:'2302860', title:'นางสาว', first:'ศิโรรัตน์',  last:'สุวรรณรัตน์',  dept_th:'ติดตามสัมภาระ ภูเก็ต', dept:'LL', pos:'Administrative Officer',        nick:'บีม',    email:'hktadminll@aotga.com',  email_alt:'hktadminpsa@aotga.com' },
+  { emp:'2506761', title:'นาย',    first:'พัทธพล',    last:'พานิช',        dept_th:'ติดตามสัมภาระ ภูเก็ต', dept:'LL', pos:'Administrative Officer',        nick:'ออย',    email:'hktadminll@aotga.com',  email_alt:'hktadminpsa@aotga.com' }
+];
+
+// ===== Signed-in identity (mockup: ใช้ค่าจาก nav, ใน production มาจาก Session.getActiveUser()) =====
+const SIGNED_IN_EMAIL = 'hktadminpsa@aotga.com';
+
+// ===== MOCK DATA =====
+const CATEGORIES = [
+  { code:'HR',  name_th:'บริหารงานบุคคล',         name_en:'HR & Manpower',           icon:'users',       desc:'พนักงาน OT เอกสารบุคคล' },
+  { code:'FIN', name_th:'การเงิน บัญชี',         name_en:'Finance',                  icon:'wallet',      desc:'จ่ายเงิน เงินทดรอง บัญชี' },
+  { code:'PRC', name_th:'พัสดุ จัดซื้อ',           name_en:'Procurement',              icon:'package',     desc:'ซื้อของใหม่ Outsource เบิกพัสดุ' },
+  { code:'MNT', name_th:'ซ่อมบำรุง อาคาร',         name_en:'Maintenance',              icon:'wrench',      desc:'แจ้งซ่อม PM ตรวจความปลอดภัย' },
+  { code:'AST', name_th:'ทรัพย์สิน โอนย้าย',       name_en:'Asset / IT',               icon:'monitor',     desc:'โอนย้าย ตรวจนับ ประสาน IT' },
+  { code:'DOC', name_th:'เอกสาร / Ramp Pass',     name_en:'Document & Pass',           icon:'file-text',   desc:'หนังสือราชการ บัตรเข้าพื้นที่' },
+  { code:'COR', name_th:'ประชุม / ประสานงาน',     name_en:'Coordination',             icon:'calendar',    desc:'จัดประชุม Business Trip' },
+  { code:'OTH', name_th:'งานอื่นๆ / กรณีพิเศษ',    name_en:'Other / Special',          icon:'help-circle', desc:'งานนอกหมวด / Incident / ข้อเสนอแนะ' }
+];
+
+const SUBS_BY_CAT = {
+  'HR': [
+    { code:'HR-1.1', name:'สัญญาจ้าง / อัตรากำลัง' },
+    { code:'HR-1.2', name:'ตารางกะและเวลาทำงาน' },
+    { code:'HR-1.3', name:'ค่าล่วงเวลา (OT)' },
+    { code:'HR-1.4', name:'สวัสดิการ / ทะเบียนประวัติ' }
+  ],
+  'FIN': [
+    { code:'FIN-2.1', name:'เงินทดรองจ่าย / บัตรเครดิตบริษัท' },
+    { code:'FIN-2.2', name:'เบิกจ่ายงบประมาณ / เบี้ยเลี้ยง' },
+    { code:'FIN-2.3', name:'บัญชี / ปรับปรุงงบประมาณ' }
+  ],
+  'PRC': [
+    { code:'PRC-3.1', name:'จัดซื้อครุภัณฑ์สำนักงาน' },
+    { code:'PRC-3.2', name:'วัสดุสิ้นเปลือง (Baggage Tag, etc.)' },
+    { code:'PRC-3.3', name:'จัดจ้างและเช่าบริการ' },
+    { code:'PRC-3.4', name:'ระบบ ERP / คลังพัสดุ' }
+  ],
+  'MNT': [
+    { code:'MNT-4.1', name:'แจ้งซ่อมด่วน' },
+    { code:'MNT-4.2', name:'PM / ตรวจความปลอดภัย' }
+  ],
+  'AST': [
+    { code:'AST-5.1', name:'โอนย้ายทรัพย์สิน' },
+    { code:'AST-5.2', name:'โอนย้ายอุปกรณ์ IT' },
+    { code:'AST-5.3', name:'ตรวจนับทรัพย์สิน' },
+    { code:'AST-5.4', name:'ระบบ IT / เครื่องพิมพ์' }
+  ],
+  'DOC': [
+    { code:'DOC-6.1', name:'Ramp Pass / สิทธิ์เข้าพื้นที่' },
+    { code:'DOC-6.2', name:'หนังสือติดต่อราชการ' },
+    { code:'DOC-6.3', name:'หนังสือภายใน / BeeECM' },
+    { code:'DOC-6.4', name:'ทำลายเอกสาร' }
+  ],
+  'COR': [
+    { code:'COR-7.1', name:'จัดประชุมภายในสถานี' },
+    { code:'COR-7.2', name:'ประสานหน่วยงานสนับสนุน' },
+    { code:'COR-7.3', name:'Business Trip ต่างประเทศ' }
+  ],
+  'OTH': [
+    { code:'OTH-8.1', name:'คำร้องอื่นๆ ที่ไม่อยู่ในหมวด 1-7' },
+    { code:'OTH-8.2', name:'รายงานเหตุการณ์ / Incident Report' },
+    { code:'OTH-8.3', name:'ข้อเสนอแนะ / ปรับปรุงระบบ' }
+  ]
+};
+
+const AIRLINES = [
+  'QR — Qatar Airways','MH — Malaysia Airlines','SQ — Singapore Airlines','LY — El Al',
+  'CX — Cathay Pacific','KC — Air Astana','OV — SalamAir','EY — Etihad','PG — Bangkok Airways',
+  'EK — Emirates','JQ — Jetstar','TR — Scoot','3K — Jetstar Asia','AK — AirAsia Malaysia',
+  '6E — IndiGo','VJ — VietJet','LJ — Jin Air','OD — Batik Air Malaysia','FY — Firefly',
+  'KE — Korean Air','TK — Turkish','SU — Aeroflot','UO — HK Express','DV — SCAT',
+  'EO — Pegas Fly','HH — Taban Air','WY — Oman Air','FM — Shanghai Airlines','MU — China Eastern',
+  'HO — Juneyao','9C — Spring Airlines','PN — China West Air','3U — Sichuan Airlines',
+  'CA — Air China','CZ — China Southern','HU — Hainan','OQ — Chongqing','ZH — Shenzhen Airlines',
+  'W5 — Mahan Air','9H — Changan Airlines','HX — Hong Kong Airlines','IT — Tigerair Taiwan',
+  'WZ — Red Wings','ZF — Azur Air','G2 — GullivAir','G9 — Air Arabia','AI — Air India',
+  'BK — Okay Airways','GX — GX Airlines','S7 — S7 Airlines','DE — Condor','QZ — Indonesia AirAsia',
+  '8M — Myanmar Airways Intl','WK — Edelweiss','XJ — Thai AirAsia X','SG — SpiceJet','NO — Neos',
+  'HY — Uzbekistan','AY — Finnair','BY — TUI Airways','KA — Cathay Dragon','SV — Saudia',
+  'DK — Eastar Jet','OM — MIAT Mongolian','6B — TUIfly Nordic','H4 — HiSky','IX — Air India Express',
+  'QP — Akasa Air','OZ — Asiana','AF — Air France','N4 — Nordwind','LO — LOT Polish',
+  'C6 — SaudiGulf','AQ — Aloha Air Cargo','B2 — Belavia','JD — Beijing Capital','HB — Greater Bay Airlines',
+  'อื่นๆ / Other'
+];
+
+const DYNAMIC_FIELDS = {
+  'FIN': [
+    { label:'ชื่อสายการบิน / Airline', label_en:'Airline', type:'select', options:AIRLINES, req:true },
+    { label:'เลขเที่ยวบิน / Flight No.', type:'text', req:false },
+    { label:'จำนวนเงิน (บาท) / Amount', type:'number', req:true },
+    { label:'ช่องทางจ่าย / Payment', type:'select', options:['เงินสดทดรอง','บัตรเครดิตบริษัท','โอนเข้าบัญชี'], req:true }
+  ],
+  'MNT': [
+    { label:'หมายเลขห้อง / Room', type:'text', req:true },
+    { label:'ประเภทอุปกรณ์', type:'select', options:['แอร์','หลอดไฟ','ประตู','โต๊ะ/เก้าอี้','Wheelchair','วิทยุสื่อสาร','อื่นๆ'], req:true },
+    { label:'หมายเลขครุภัณฑ์', type:'text', req:false },
+    { label:'อาการเสีย / Symptom', type:'textarea', req:true }
+  ],
+  'HR': [
+    { label:'รหัสพนักงาน / EMP ID', type:'text', req:true },
+    { label:'ประเภทคำร้อง', type:'select', options:['ยูนิฟอร์ม','ใบรับรองแพทย์','ใบรับรองเงินเดือน','หนังสือเตือน','อื่นๆ'], req:true }
+  ],
+  'PRC': [
+    { label:'ชื่อรายการพัสดุ', type:'text', req:true },
+    { label:'จำนวน', type:'number', req:true },
+    { label:'งบที่ใช้', type:'text', req:true }
+  ],
+  'OTH': [
+    { label:'ประเภทเหตุการณ์ / Type', type:'select', options:['ผู้โดยสารร้องเรียน','อุบัติเหตุ (บุคลากร)','อุบัติเหตุ (ผู้โดยสาร)','ทรัพย์สินเสียหาย','ทุจริต','ความปลอดภัย Airside','อื่นๆ'], req:false },
+    { label:'วัน-เวลาที่เกิดเหตุ', type:'date', req:false },
+    { label:'สถานที่เกิดเหตุ', type:'text', req:false },
+    { label:'ทีมที่คาดว่าจะรับ (ถ้าทราบ)', type:'select', options:['HR','FIN','PRC','MNT','AST','DOC','COR','ไม่แน่ใจ — Admin คัด'], req:false }
+  ]
+};
+
+const STAGES = [
+  { code:'S1_Received',   name:'รับเรื่อง',       en:'Received',   color:'#3B82F6' },
+  { code:'S2_Reviewing',  name:'ตรวจสอบ',         en:'Reviewing',  color:'#F59E0B' },
+  { code:'S3_Assigned',   name:'มอบหมายแล้ว',     en:'Assigned',   color:'#6366F1' },
+  { code:'S4_Processing', name:'กำลังดำเนินการ',  en:'Processing', color:'#0EA5E9' },
+  { code:'S5_Sent',       name:'ส่งออก',          en:'Sent',       color:'#10B981' },
+  { code:'S6_Closed',     name:'ปิดเคส',          en:'Closed',     color:'#059669' }
+];
+
+// assignedToEmp = Emp_Code ของพนักงานที่ถูกมอบหมาย (null = unassigned)
+const TICKETS = [
+  { id:'KP-2026-FIN-00012', subject:'ค่าปรับ ตม. SCOOT TR2123 25 พ.ค.', dept:'KP', cat:'FIN', sub:'FIN-2.1', subName:'เงินทดรองจ่าย', prio:'Urgent',   stage:'S4_Processing', assignedToEmp:'2202011', requester:'สมชาย ใจดี',   created:'25 พ.ค. 14:32', overdue:false },
+  { id:'LP-2026-MNT-00004', subject:'แอร์ห้อง PB102 ไม่เย็น',           dept:'LP', cat:'MNT', sub:'MNT-4.1', subName:'แจ้งซ่อมด่วน',   prio:'Urgent',   stage:'S3_Assigned',   assignedToEmp:'2506761', requester:'มาลี สวยงาม',  created:'25 พ.ค. 11:20', overdue:false },
+  { id:'KP-2026-FIN-00011', subject:'Hotel Delay ผดส. AKASA QP441',    dept:'KP', cat:'FIN', sub:'FIN-2.1', subName:'เงินทดรองจ่าย', prio:'Critical', stage:'S5_Sent',       assignedToEmp:'2100935', requester:'อนุชา สง่า',   created:'24 พ.ค. 22:14', overdue:false },
+  { id:'LL-2026-PRC-00007', subject:'จัดซื้อ Baggage Tag 5000 ใบ',      dept:'LL', cat:'PRC', sub:'PRC-3.2', subName:'วัสดุสิ้นเปลือง',prio:'Normal',  stage:'S2_Reviewing',  assignedToEmp:'2302860', requester:'วิทยา อยู่ดี', created:'25 พ.ค. 09:00', overdue:true  },
+  { id:'KP-2026-HR-00018',  subject:'OT ค่าด่านศุลกากร พ.ค.',          dept:'KP', cat:'HR',  sub:'HR-1.3',  subName:'ค่าล่วงเวลา',    prio:'Normal',  stage:'S1_Received',   assignedToEmp:null,      requester:'ณภัทร ลำพอง',  created:'25 พ.ค. 16:08', overdue:false },
+  { id:'LP-2026-DOC-00003', subject:'Ramp Pass พนักงานใหม่ 3 คน',      dept:'LP', cat:'DOC', sub:'DOC-6.1', subName:'Ramp Pass',     prio:'Normal',  stage:'S4_Processing', assignedToEmp:'2506762', requester:'กรกช ใจกล้า',  created:'24 พ.ค. 10:00', overdue:false },
+  { id:'KP-2026-COR-00002', subject:'Business Trip Scoot @SIN มิ.ย.',   dept:'KP', cat:'COR', sub:'COR-7.3', subName:'Business Trip', prio:'Normal',  stage:'S2_Reviewing',  assignedToEmp:'2506243', requester:'สมชาย ใจดี',   created:'23 พ.ค. 14:00', overdue:false },
+  { id:'LL-2026-AST-00005', subject:'ย้ายตู้เอกสาร LL → PB102',         dept:'LL', cat:'AST', sub:'AST-5.1', subName:'โอนย้ายทรัพย์สิน',prio:'Normal', stage:'S3_Assigned',   assignedToEmp:'2506761', requester:'วิทยา อยู่ดี', created:'25 พ.ค. 13:00', overdue:false },
+  { id:'KP-2026-MNT-00009', subject:'PM Wheelchair 6 เดือน',            dept:'KP', cat:'MNT', sub:'MNT-4.2', subName:'PM',            prio:'Normal',  stage:'S6_Closed',     assignedToEmp:'2506762', requester:'มาลี สวยงาม',  created:'20 พ.ค. 09:00', overdue:false }
+];
+
+function staffByEmp(emp) { return STAFF_ROSTER.find(s => s.emp === emp); }
+function ticketAssigneeNick(t) { const s = staffByEmp(t.assignedToEmp); return s ? s.nick : null; }
+
+const CHECKLIST_S4_FIN = [
+  { stage:'S1_Received',  text:'ตรวจ ticket ใหม่ใน Inbox',           en:'Check new ticket', done:true },
+  { stage:'S1_Received',  text:'ตอบรับใน Email/Chat ภายใน 15 นาที',  en:'Acknowledge within 15 min', done:true },
+  { stage:'S2_Reviewing', text:'อ่านรายละเอียดและเอกสารแนบ',         en:'Read details & attachments', done:true },
+  { stage:'S2_Reviewing', text:'ตรวจความครบถ้วนของข้อมูล',           en:'Verify completeness', done:true },
+  { stage:'S3_Assigned',  text:'เลือก Admin ผู้รับผิดชอบและ Assign', en:'Assign responsible admin', done:true },
+  { stage:'S3_Assigned',  text:'แจ้งทีม Finance ผ่าน Chat/Email',     en:'Notify Finance team', done:false },
+  { stage:'S4_Processing',text:'ตรวจใบเสร็จ/ใบกำกับภาษีถูกต้อง',     en:'Verify receipt/tax invoice', done:false },
+  { stage:'S4_Processing',text:'ขออนุมัติจาก Station Manager',       en:'Get Station Manager approval', done:false },
+  { stage:'S4_Processing',text:'จ่ายเงิน / บันทึกบัญชี',              en:'Disburse / record accounting', done:false },
+  { stage:'S5_Sent',      text:'ส่งหลักฐานให้ผู้ขอคำร้อง',            en:'Send proof to requester', done:false },
+  { stage:'S6_Closed',    text:'บันทึก Resolution Note + Filing',     en:'Record resolution + filing', done:false }
+];
+
+// ===== Track page =====
+function renderTrack(rows) {
+  const box = document.getElementById('trackResults');
+  if (!rows || !rows.length) { box.innerHTML = `<div class="card p-12 text-center text-slate-500"><i data-lucide="search-x" class="w-12 h-12 mx-auto mb-3 text-slate-300"></i><div>ไม่พบ ticket — ลองใส่ ID หรืออีเมลให้ครบ</div></div>`; lucide.createIcons(); return; }
+  box.innerHTML = rows.map(t => {
+    const stageIdx = STAGES.findIndex(s => s.code===t.stage);
+    return `
+    <div class="card p-5 mb-3 card-hover cursor-pointer" data-tid="${t.id}">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="font-mono text-sm bg-slate-100 px-2 py-0.5 rounded">${t.id}</span>
+            <span class="pill" style="background:${prioColor(t.prio)[0]};color:${prioColor(t.prio)[1]}">${t.prio}</span>
+            ${t.overdue ? '<span class="pill" style="background:#FEE2E2;color:#991B1B">⚠ Overdue</span>' : ''}
+          </div>
+          <div class="font-semibold text-slate-900">${t.subject}</div>
+          <div class="text-xs text-slate-500 mt-1">${t.dept} · ${t.subName} · ส่งโดย ${t.requester} · ${t.created}</div>
+        </div>
+      </div>
+      <div class="flex gap-1 mt-3">
+        ${STAGES.map((s, i) => `<div class="flex-1 h-2 rounded ${i<=stageIdx ? '' : 'opacity-30'}" style="background:${s.color}" title="${s.name}"></div>`).join('')}
+      </div>
+      <div class="flex justify-between text-xs text-slate-500 mt-2">
+        <span>${STAGES[0].name}</span>
+        <span class="font-semibold" style="color:${STAGES[stageIdx].color}">ปัจจุบัน: ${STAGES[stageIdx].name} (${STAGES[stageIdx].en})</span>
+        <span>${STAGES[STAGES.length-1].name}</span>
+      </div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-tid]').forEach(el => el.addEventListener('click', () => openTicketModal(el.dataset.tid)));
+  lucide.createIcons();
+}
+function prioColor(p) {
+  return p==='Critical' ? ['#FEE2E2','#991B1B'] : p==='Urgent' ? ['#FEF3C7','#92400E'] : ['#D1FAE5','#065F46'];
+}
+function runTrackSearch() {
+  const q = document.getElementById('trackQuery').value.trim().toUpperCase();
+  const dept = document.getElementById('trackDept').value;
+  const stage = document.getElementById('trackStage').value;
+  const openStages = ['S1_Received','S2_Reviewing','S3_Assigned','S4_Processing','S5_Sent'];
+
+  let found = TICKETS.slice();
+  if (q) found = found.filter(t => t.id.toUpperCase().includes(q) || (t.requester||'').toUpperCase().includes(q));
+  if (dept) found = found.filter(t => t.dept === dept);
+  if (stage === '__OPEN__') found = found.filter(t => openStages.indexOf(t.stage) >= 0);
+  else if (stage) found = found.filter(t => t.stage === stage);
+
+  // sort by created desc (string sort on Thai date works ok here in mock; backend ใช้ Date)
+  found.sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+
+  const summary = document.getElementById('trackSummary');
+  const filters = [
+    q && 'คำค้น "' + q + '"',
+    dept && 'แผนก ' + dept,
+    stage === '__OPEN__' ? 'เปิดอยู่ทั้งหมด' : stage ? 'สถานะ ' + stage : ''
+  ].filter(Boolean).join(' · ');
+  if (filters || q || dept || stage) {
+    summary.classList.remove('hidden');
+    summary.textContent = 'ผลลัพธ์: ' + found.length + ' รายการ' + (filters ? ' · ' + filters : '');
+  } else {
+    summary.classList.add('hidden');
+  }
+  renderTrack(found);
+}
+document.getElementById('btnTrack').addEventListener('click', runTrackSearch);
+document.getElementById('btnTrackReset').addEventListener('click', () => {
+  document.getElementById('trackQuery').value = '';
+  document.getElementById('trackDept').value = '';
+  document.getElementById('trackStage').value = '';
+  document.getElementById('trackSummary').classList.add('hidden');
+  renderTrack(TICKETS.slice(0,5));
+});
+document.getElementById('trackDept').addEventListener('change', runTrackSearch);
+document.getElementById('trackStage').addEventListener('change', runTrackSearch);
+document.getElementById('trackQuery').addEventListener('keydown', (e) => { if (e.key === 'Enter') runTrackSearch(); });
+
+// ===== Admin Dashboard =====
+function renderAdmin() {
+  const MAX_LOAD = 15;
+  const openStages = ['S1_Received','S2_Reviewing','S3_Assigned','S4_Processing','S5_Sent'];
+  document.getElementById('workloadList').innerHTML = STAFF_ROSTER.map(s => {
+    const load = TICKETS.filter(t => t.assignedToEmp === s.emp && openStages.indexOf(t.stage) >= 0).length;
+    const pct = Math.min(100, (load/MAX_LOAD)*100);
+    return `
+    <div>
+      <div class="flex items-center justify-between mb-1">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center">${s.nick.slice(0,1)}</div>
+          <div>
+            <div class="text-sm font-medium">${s.nick} <span class="text-slate-500 font-normal">— ${s.first} ${s.last}</span></div>
+            <div class="text-xs text-slate-500">${s.pos} · ${s.dept} · ${s.emp}</div>
+          </div>
+        </div>
+        <div class="text-sm font-semibold">${load} <span class="text-xs text-slate-500">/ ${MAX_LOAD}</span></div>
+      </div>
+      <div class="stat-bar"><div class="stat-bar-fill" style="width:${pct}%;background:${pct>80?'#EF4444':pct>60?'#F59E0B':'#3B82F6'}"></div></div>
+    </div>`;
+  }).join('');
+  const catCounts = {};
+  TICKETS.forEach(t => { if (t.stage!=='S6_Closed') catCounts[t.cat]=(catCounts[t.cat]||0)+1; });
+  const total = Object.values(catCounts).reduce((a,b)=>a+b,0) || 1;
+  document.getElementById('catList').innerHTML = CATEGORIES.map(c => {
+    const n = catCounts[c.code]||0;
+    const pct = (n/total)*100;
+    return `
+    <div>
+      <div class="flex items-center justify-between mb-1">
+        <div class="flex items-center gap-2">
+          <span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">${c.code}</span>
+          <div class="text-sm">${c.name_th}</div>
+        </div>
+        <div class="text-sm font-semibold">${n}</div>
+      </div>
+      <div class="stat-bar"><div class="stat-bar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
+  const board = document.getElementById('kanban');
+  board.innerHTML = STAGES.map(s => {
+    const items = TICKETS.filter(t => t.stage===s.code);
+    return `
+    <div class="kanban-col">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-2 h-6 rounded" style="background:${s.color}"></div>
+          <div>
+            <div class="font-semibold text-sm">${s.name}</div>
+            <div class="text-xs text-slate-500">${s.en}</div>
+          </div>
+        </div>
+        <span class="text-xs font-bold text-slate-500">${items.length}</span>
+      </div>
+      ${items.map(t => {
+        const nick = ticketAssigneeNick(t);
+        return `
+        <div class="kanban-card" data-tid="${t.id}">
+          <div class="flex items-start justify-between mb-1">
+            <span class="font-mono text-xs text-slate-500">${t.id}</span>
+            <span class="pill" style="background:${prioColor(t.prio)[0]};color:${prioColor(t.prio)[1]};padding:1px 6px;font-size:10px">${t.prio}</span>
+          </div>
+          <div class="text-sm font-medium text-slate-900 leading-snug mb-2">${t.subject}</div>
+          <div class="flex items-center justify-between text-xs text-slate-500">
+            <span>${t.dept} · ${t.cat}</span>
+            ${nick ? `<span class="pill" style="background:#EEF2FF;color:#3730A3;padding:1px 8px;font-size:11px">👤 ${nick}</span>` : '<span class="text-amber-600">⚠ unassigned</span>'}
+          </div>
+          ${t.overdue ? '<div class="mt-2 text-xs text-red-600 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i> Overdue</div>' : ''}
+        </div>`;
+      }).join('')}
+      ${!items.length ? `<div class="text-center text-xs text-slate-400 py-6">— ว่าง —</div>` : ''}
+    </div>`;
+  }).join('');
+  board.querySelectorAll('[data-tid]').forEach(el => el.addEventListener('click', () => openTicketModal(el.dataset.tid)));
+  lucide.createIcons();
+}
+
+// ===== Ticket Detail Modal =====
+function openTicketModal(tid) {
+  const t = TICKETS.find(x => x.id===tid) || TICKETS[0];
+  document.getElementById('m_id').textContent = t.id;
+  document.getElementById('m_title').textContent = t.subject;
+  document.getElementById('m_prio').textContent = t.prio;
+  const pc = prioColor(t.prio);
+  document.getElementById('m_prio').style.background = pc[0];
+  document.getElementById('m_prio').style.color = pc[1];
+  const stageIdx = STAGES.findIndex(s => s.code===t.stage);
+  document.getElementById('stageBar').innerHTML = STAGES.map((s, i) => `
+    <div class="flex-1 text-center ${i<=stageIdx?'':'opacity-40'}">
+      <div class="h-2 rounded mb-2" style="background:${s.color}"></div>
+      <div class="text-xs font-medium">${s.name}</div>
+      <div class="text-xs text-slate-500">${s.en}</div>
+    </div>
+  `).join('');
+
+  // === Assignee box ===
+  const assignee = staffByEmp(t.assignedToEmp);
+  if (assignee) {
+    document.getElementById('m_assigneeAvatar').textContent = assignee.nick.slice(0,1);
+    document.getElementById('m_assigneeName').textContent = assignee.nick + ' — ' + assignee.first + ' ' + assignee.last;
+    document.getElementById('m_assigneeMeta').textContent = assignee.pos + ' · ' + assignee.dept + ' · ' + assignee.email + (assignee.email_alt ? ' / ' + assignee.email_alt : '');
+    document.getElementById('m_assignStatus').textContent = '✓ มอบหมายแล้ว';
+    document.getElementById('m_assignStatus').style.color = '#059669';
+  } else {
+    document.getElementById('m_assigneeAvatar').textContent = '?';
+    document.getElementById('m_assigneeName').textContent = '— ยังไม่ได้มอบหมาย —';
+    document.getElementById('m_assigneeMeta').textContent = 'รอ Supervisor กระจายงาน';
+    document.getElementById('m_assignStatus').textContent = '⚠ unassigned';
+    document.getElementById('m_assignStatus').style.color = '#D97706';
+  }
+
+  // === Distribute dropdown ===
+  const sel = document.getElementById('m_assignSelect');
+  sel.innerHTML = '<option value="">— เลือกพนักงาน —</option>' + STAFF_ROSTER.map(s =>
+    `<option value="${s.emp}" ${s.emp===t.assignedToEmp?'selected':''}>${s.nick} — ${s.first} ${s.last} (${s.dept} · ${s.pos})</option>`
+  ).join('');
+  document.getElementById('m_btnAssign').onclick = () => {
+    const emp = sel.value;
+    if (!emp) { toast('กรุณาเลือกพนักงาน','Please pick a staff member',true); return; }
+    const target = staffByEmp(emp);
+    t.assignedToEmp = emp;
+    // advance stage S1/S2 → S3_Assigned (mockup behavior)
+    if (t.stage === 'S1_Received' || t.stage === 'S2_Reviewing') t.stage = 'S3_Assigned';
+    toast('กระจายงานให้ ' + target.nick + ' แล้ว', 'Notification เด้งไป ' + target.email + ' (CC: ' + (target.email_alt || '-') + ')');
+    openTicketModal(tid);
+    renderAdmin();
+  };
+  const done = CHECKLIST_S4_FIN.filter(c => c.done).length;
+  document.getElementById('ckProgress').textContent = done;
+  document.getElementById('ckTotal').textContent = CHECKLIST_S4_FIN.length;
+  document.getElementById('checklistBox').innerHTML = CHECKLIST_S4_FIN.map((c, i) => {
+    const stage = STAGES.find(s => s.code===c.stage);
+    return `
+    <div class="checklist-item ${c.done?'done':''}" data-ck="${i}">
+      <input type="checkbox" ${c.done?'checked':''} class="mt-0.5 w-4 h-4 rounded text-blue-600">
+      <div class="flex-1">
+        <div class="item-text text-sm font-medium">${c.text}</div>
+        <div class="text-xs text-slate-500">${c.en} · <span style="color:${stage.color}">${stage.name}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('[data-ck]').forEach(el => {
+    el.addEventListener('click', () => {
+      const i = parseInt(el.dataset.ck,10);
+      CHECKLIST_S4_FIN[i].done = !CHECKLIST_S4_FIN[i].done;
+      openTicketModal(tid);
+    });
+  });
+  document.getElementById('modalOverlay').classList.remove('hidden');
+  lucide.createIcons();
+}
+document.getElementById('btnCloseModal').addEventListener('click', () => document.getElementById('modalOverlay').classList.add('hidden'));
+document.getElementById('modalOverlay').addEventListener('click', (e) => { if (e.target.id==='modalOverlay') e.currentTarget.classList.add('hidden'); });
+
+// ===== Toast =====
+function toast(title, body, error) {
+  const t = document.getElementById('toast');
+  t.classList.toggle('error', !!error);
+  document.getElementById('toastTitle').textContent = title;
+  document.getElementById('toastBody').textContent = body || '';
+  t.classList.remove('hidden');
+  setTimeout(() => t.classList.add('hidden'), 3500);
+}
+
+let lang = 'TH';
+
+// ===== Lang toggle (placeholder) =====
+document.getElementById('langToggle').addEventListener('click', () => {
+  lang = lang==='TH' ? 'EN' : 'TH';
+  toast(lang==='TH' ? 'ภาษาไทย / Thai' : 'English', 'ตอนนี้ Mockup รองรับ Bilingual labels — สลับ default ที่ Backend');
+});
+
+// ===== Init =====
+showPage('admin');
+renderTrack(TICKETS.slice(0,5));
+lucide.createIcons();
+</script>
+</body>
+</html>
