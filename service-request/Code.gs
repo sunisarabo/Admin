@@ -54,19 +54,20 @@ const CFG = {
   STAFF_COLUMNS: [
     'Emp_Code', 'Title_TH', 'First_TH', 'Last_TH',
     'Department_TH', 'Dept_Code', 'Position', 'Nickname',
-    'Email', 'Active'
+    'Email', 'Email_Alt', 'Active'
   ],
 
-  // seed รายชื่อพนักงานเริ่มต้น (แก้ Email เพิ่มเติมได้ใน Sheet โดยตรง)
-  // ทุกคนใช้ hktadminpsa@aotga.com เป็น shared inbox สำหรับรับ notification
-  // ส่วนไอซ์มี admin email แยก (sunisara.bo@aotga.com) — ดูใน 10_Admins
+  // seed รายชื่อพนักงานเริ่มต้น (แก้/เพิ่ม Email ได้ใน Sheet โดยตรง)
+  // 2-way shared inbox: staff login ด้วย Email หรือ Email_Alt ก็ได้
+  // ทีม KP → primary hktadminpsa, alt hktadminll  |  ทีม LL → primary hktadminll, alt hktadminpsa
+  // notification เด้งทั้ง 2 inbox (To + CC)
   STAFF_SEED: [
-    ['2100935', 'นางสาว', 'พัชรินทร์',  'กริชสั้น',      'การโดยสาร ภูเก็ต',     'KP', 'Senior Administrative Officer', 'นัตตี้', 'hktadminpsa@aotga.com', 'yes'],
-    ['2202011', 'นางสาว', 'สุนิศรา',    'บุญยัง',        'การโดยสาร ภูเก็ต',     'KP', 'Administrative Supervisor',     'ไอซ์',   'hktadminpsa@aotga.com', 'yes'],
-    ['2506243', 'นาย',    'พุฒิพงษ์',  'ทิพย์เขต',      'การโดยสาร ภูเก็ต',     'KP', 'Administrative Officer',        'แม็ค',   'hktadminpsa@aotga.com', 'yes'],
-    ['2506762', 'นางสาว', 'กาญจนาพร',  'เภรินทวงค์',    'การโดยสาร ภูเก็ต',     'KP', 'Administrative Officer',        'ฟลุ๊ค',  'hktadminpsa@aotga.com', 'yes'],
-    ['2302860', 'นางสาว', 'ศิโรรัตน์',  'สุวรรณรัตน์',   'ติดตามสัมภาระ ภูเก็ต', 'LL', 'Administrative Officer',        'บีม',    'hktadminpsa@aotga.com', 'yes'],
-    ['2506761', 'นาย',    'พัทธพล',    'พานิช',         'ติดตามสัมภาระ ภูเก็ต', 'LL', 'Administrative Officer',        'ออย',    'hktadminpsa@aotga.com', 'yes']
+    ['2100935', 'นางสาว', 'พัชรินทร์',  'กริชสั้น',      'การโดยสาร ภูเก็ต',     'KP', 'Senior Administrative Officer', 'นัตตี้', 'hktadminpsa@aotga.com', 'hktadminll@aotga.com', 'yes'],
+    ['2202011', 'นางสาว', 'สุนิศรา',    'บุญยัง',        'การโดยสาร ภูเก็ต',     'KP', 'Administrative Supervisor',     'ไอซ์',   'hktadminpsa@aotga.com', 'hktadminll@aotga.com', 'yes'],
+    ['2506243', 'นาย',    'พุฒิพงษ์',  'ทิพย์เขต',      'การโดยสาร ภูเก็ต',     'KP', 'Administrative Officer',        'แม็ค',   'hktadminpsa@aotga.com', 'hktadminll@aotga.com', 'yes'],
+    ['2506762', 'นางสาว', 'กาญจนาพร',  'เภรินทวงค์',    'การโดยสาร ภูเก็ต',     'KP', 'Administrative Officer',        'ฟลุ๊ค',  'hktadminpsa@aotga.com', 'hktadminll@aotga.com', 'yes'],
+    ['2302860', 'นางสาว', 'ศิโรรัตน์',  'สุวรรณรัตน์',   'ติดตามสัมภาระ ภูเก็ต', 'LL', 'Administrative Officer',        'บีม',    'hktadminll@aotga.com',  'hktadminpsa@aotga.com', 'yes'],
+    ['2506761', 'นาย',    'พัทธพล',    'พานิช',         'ติดตามสัมภาระ ภูเก็ต', 'LL', 'Administrative Officer',        'ออย',    'hktadminll@aotga.com',  'hktadminpsa@aotga.com', 'yes']
   ],
 
   TICKET_COLUMNS: [
@@ -135,8 +136,13 @@ function getMasterData() {
  */
 function getCurrentUserProfile_(ss, email) {
   if (!email) return { email: '', matches: [], default: null };
+  const lower = email.toLowerCase();
   const all = readSheet_(ss, CFG.SH.STAFF).filter(s => String(s.Active).toLowerCase()==='yes');
-  const matches = all.filter(s => String(s.Email).toLowerCase() === email.toLowerCase());
+  // match either Email หรือ Email_Alt (2-way shared inbox)
+  const matches = all.filter(s =>
+    String(s.Email || '').toLowerCase() === lower ||
+    String(s.Email_Alt || '').toLowerCase() === lower
+  );
   return {
     email: email,
     matches: matches,
@@ -944,8 +950,13 @@ function sendStaffAssignmentEmail_(ticketId, staff, displayName, row, headers) {
   const prioCol = headers.indexOf('Priority');
   const reqCol = headers.indexOf('Requester_Name');
   const subCol = headers.indexOf('Sub_Name_TH');
+  // 2-way: ส่งหา Email หลัก, CC Email_Alt (ถ้ามีและไม่ซ้ำ)
+  const to = staff.Email;
+  const cc = staff.Email_Alt && String(staff.Email_Alt).toLowerCase() !== String(to).toLowerCase()
+    ? staff.Email_Alt : '';
   MailApp.sendEmail({
-    to: staff.Email,
+    to: to,
+    cc: cc,
     subject: '[Assigned · ' + (staff.Nickname || displayName) + '] ' + ticketId + ' — ' + row[subjCol],
     htmlBody: '<p>มี ticket มอบหมายให้ <b>' + displayName + '</b> (รหัส ' + staff.Emp_Code + ')</p>'
       + '<ul>'

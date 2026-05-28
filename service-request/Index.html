@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Service Request Ticketing — Mockup</title>
+<title>Service Request Ticketing · ระบบคำร้องส่วนกลาง · Passenger Services</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -74,8 +74,8 @@
         <i data-lucide="ticket" class="w-5 h-5"></i>
       </div>
       <div>
-        <div class="font-semibold text-sm leading-tight">Service Request</div>
-        <div class="text-xs text-slate-300 leading-tight">ระบบคำร้องส่วนกลาง · KP / LP / LL</div>
+        <div class="font-semibold text-sm leading-tight">Service Request Ticketing</div>
+        <div class="text-xs text-slate-300 leading-tight">ระบบคำร้องส่วนกลาง · Passenger Services</div>
       </div>
     </div>
 
@@ -458,13 +458,14 @@
 <!-- ========== SCRIPT ========== -->
 <script>
 // ===== STAFF ROSTER (seed; in production มาจาก backend getMasterData().currentUser) =====
+// 2-way shared inbox: login ด้วย email หรือ email_alt ก็ได้, notification เด้งทั้ง 2 inbox
 const STAFF_ROSTER = [
-  { emp:'2100935', title:'นางสาว', first:'พัชรินทร์',  last:'กริชสั้น',     dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Senior Administrative Officer', nick:'นัตตี้', email:'hktadminpsa@aotga.com' },
-  { emp:'2202011', title:'นางสาว', first:'สุนิศรา',    last:'บุญยัง',       dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Supervisor',     nick:'ไอซ์',   email:'sunisara.bo@aotga.com' },
-  { emp:'2506243', title:'นาย',    first:'พุฒิพงษ์',  last:'ทิพย์เขต',     dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Officer',        nick:'แม็ค',   email:'hktadminpsa@aotga.com' },
-  { emp:'2506762', title:'นางสาว', first:'กาญจนาพร',  last:'เภรินทวงค์',   dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Officer',        nick:'ฟลุ๊ค',  email:'hktadminpsa@aotga.com' },
-  { emp:'2302860', title:'นางสาว', first:'ศิโรรัตน์',  last:'สุวรรณรัตน์',  dept_th:'ติดตามสัมภาระ ภูเก็ต', dept:'LL', pos:'Administrative Officer',        nick:'บีม',    email:'hktadminll@aotga.com'  },
-  { emp:'2506761', title:'นาย',    first:'พัทธพล',    last:'พานิช',        dept_th:'ติดตามสัมภาระ ภูเก็ต', dept:'LL', pos:'Administrative Officer',        nick:'ออย',    email:'hktadminll@aotga.com'  }
+  { emp:'2100935', title:'นางสาว', first:'พัชรินทร์',  last:'กริชสั้น',     dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Senior Administrative Officer', nick:'นัตตี้', email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
+  { emp:'2202011', title:'นางสาว', first:'สุนิศรา',    last:'บุญยัง',       dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Supervisor',     nick:'ไอซ์',   email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
+  { emp:'2506243', title:'นาย',    first:'พุฒิพงษ์',  last:'ทิพย์เขต',     dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Officer',        nick:'แม็ค',   email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
+  { emp:'2506762', title:'นางสาว', first:'กาญจนาพร',  last:'เภรินทวงค์',   dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Officer',        nick:'ฟลุ๊ค',  email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
+  { emp:'2302860', title:'นางสาว', first:'ศิโรรัตน์',  last:'สุวรรณรัตน์',  dept_th:'ติดตามสัมภาระ ภูเก็ต', dept:'LL', pos:'Administrative Officer',        nick:'บีม',    email:'hktadminll@aotga.com',  email_alt:'hktadminpsa@aotga.com' },
+  { emp:'2506761', title:'นาย',    first:'พัทธพล',    last:'พานิช',        dept_th:'ติดตามสัมภาระ ภูเก็ต', dept:'LL', pos:'Administrative Officer',        nick:'ออย',    email:'hktadminll@aotga.com',  email_alt:'hktadminpsa@aotga.com' }
 ];
 
 // ===== Signed-in identity (mockup: ใช้ค่าจาก nav, ใน production มาจาก Session.getActiveUser()) =====
@@ -631,7 +632,11 @@ let lang = 'TH';
 
 // ===== IDENTITY (Signed-in user → Staff Roster) =====
 function resolveIdentity() {
-  identityMatches = STAFF_ROSTER.filter(s => s.email.toLowerCase() === SIGNED_IN_EMAIL.toLowerCase());
+  const lower = SIGNED_IN_EMAIL.toLowerCase();
+  identityMatches = STAFF_ROSTER.filter(s =>
+    (s.email || '').toLowerCase() === lower ||
+    (s.email_alt || '').toLowerCase() === lower
+  );
   if (!identityMatches.length) {
     // fallback: ไม่พบใน roster — แสดงเฉพาะอีเมล
     currentStaff = null;
