@@ -80,17 +80,13 @@
     </div>
 
     <div class="flex items-center gap-1">
-      <div class="nav-link active" data-page="form">
-        <i data-lucide="file-plus-2" class="w-4 h-4 inline mr-1"></i>
-        ส่งคำร้อง <span class="text-xs text-slate-400 ml-1">New Request</span>
+      <div class="nav-link active" data-page="admin">
+        <i data-lucide="layout-dashboard" class="w-4 h-4 inline mr-1"></i>
+        Admin Dashboard
       </div>
       <div class="nav-link" data-page="track">
         <i data-lucide="search" class="w-4 h-4 inline mr-1"></i>
         ติดตามสถานะ <span class="text-xs text-slate-400 ml-1">Track</span>
-      </div>
-      <div class="nav-link" data-page="admin">
-        <i data-lucide="layout-dashboard" class="w-4 h-4 inline mr-1"></i>
-        Admin Dashboard
       </div>
     </div>
 
@@ -109,155 +105,6 @@
 
 <!-- ========== MAIN ========== -->
 <main class="max-w-7xl mx-auto px-6 py-8">
-
-<!-- =====================================================================
-     PAGE 1: NEW REQUEST FORM
-     ===================================================================== -->
-<section id="page-form" class="fade-in">
-  <div class="flex items-start justify-between mb-6">
-    <div>
-      <h1 class="text-2xl font-bold text-slate-900">ส่งคำร้องใหม่ <span class="text-base font-normal text-slate-500">New Service Request</span></h1>
-      <p class="text-sm text-slate-600 mt-1">ระบบดึงข้อมูลผู้ส่งจากบัญชี Google โดยอัตโนมัติ — เลือกหมวด · กรอกรายละเอียด · ส่ง</p>
-    </div>
-    <div class="text-xs text-emerald-600 flex items-center gap-1 mt-2">
-      <i data-lucide="cloud-check" class="w-4 h-4"></i>
-      <span>Auto-saved · บันทึกอัตโนมัติ</span>
-    </div>
-  </div>
-
-  <!-- Signed-in identity banner -->
-  <div class="identity-card rounded-xl p-5 mb-6">
-    <div class="flex items-center gap-4">
-      <div class="w-12 h-12 rounded-full bg-navy text-white font-bold text-base flex items-center justify-center flex-shrink-0" style="background:#0F2A4F" id="idAvatar">—</div>
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2 flex-wrap">
-          <div class="text-xs uppercase tracking-wider text-slate-500 font-semibold">ผู้ส่งคำร้อง · Requester (จากบัญชี Google)</div>
-          <span class="pill" style="background:#DCFCE7;color:#166534"><i data-lucide="badge-check" class="w-3 h-3"></i> verified</span>
-        </div>
-        <div class="mt-1 flex items-baseline gap-2 flex-wrap">
-          <span class="font-semibold text-slate-900 text-base" id="idFullName">—</span>
-          <span class="text-sm text-slate-500" id="idNickname">—</span>
-        </div>
-        <div class="text-xs text-slate-600 mt-1">
-          <span id="idPosition">—</span> · <span id="idDept">—</span> · <span class="font-mono text-slate-500" id="idEmpCode">—</span>
-          · <span class="text-slate-500" id="idEmail">—</span>
-        </div>
-      </div>
-      <!-- shown only when email maps to >1 staff record -->
-      <div class="hidden" id="idSwitch">
-        <label class="label text-xs">เลือกชื่อพนักงาน<span class="label-en">Switch identity</span></label>
-        <select class="input" id="idSelect" style="min-width:220px"></select>
-      </div>
-    </div>
-  </div>
-
-  <!-- Progress (3 steps) -->
-  <div class="card p-6 mb-6">
-    <div class="flex items-center justify-between mb-3">
-      <div class="text-sm font-medium text-slate-700">ขั้นตอน <span id="stepLabel">1 of 3</span></div>
-      <div class="text-sm text-slate-500" id="stepPct">33%</div>
-    </div>
-    <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:33%"></div></div>
-    <div class="grid grid-cols-3 gap-3 mt-5">
-      <div class="text-center" data-step="1">
-        <div class="step-circle active mx-auto mb-2">1</div>
-        <div class="text-xs font-medium text-slate-800">เลือกหมวด</div>
-        <div class="text-xs text-slate-500">Category</div>
-      </div>
-      <div class="text-center" data-step="2">
-        <div class="step-circle todo mx-auto mb-2">2</div>
-        <div class="text-xs font-medium text-slate-800">รายละเอียด</div>
-        <div class="text-xs text-slate-500">Details</div>
-      </div>
-      <div class="text-center" data-step="3">
-        <div class="step-circle todo mx-auto mb-2">3</div>
-        <div class="text-xs font-medium text-slate-800">ทบทวน</div>
-        <div class="text-xs text-slate-500">Review</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Step 1: Category -->
-  <div class="card p-8 mb-6 fade-in" id="step-1">
-    <h2 class="text-lg font-semibold text-slate-900 mb-1">เลือกหมวดหมู่คำร้อง <span class="text-sm font-normal text-slate-500">Choose Category</span></h2>
-    <p class="text-sm text-slate-500 mb-6">เลือกหมวดที่ตรงกับเรื่องของคุณที่สุด</p>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3" id="catGrid"></div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-6 hidden" id="subSelect">
-      <div>
-        <label class="label">หมวดหมู่ย่อย <span class="req">*</span><span class="label-en">Sub-Category</span></label>
-        <select class="input" id="f_sub"><option value="">— เลือก —</option></select>
-      </div>
-      <div>
-        <label class="label">ระดับความเร่งด่วน <span class="req">*</span><span class="label-en">Priority</span></label>
-        <select class="input" id="f_prio">
-          <option value="Normal">Normal — ปกติ (3 วัน)</option>
-          <option value="Urgent">Urgent — เร่งด่วน (24 ชม.)</option>
-          <option value="Critical">Critical — ฉุกเฉิน (1-2 ชม.)</option>
-        </select>
-      </div>
-    </div>
-  </div>
-
-  <!-- Step 2: Details -->
-  <div class="card p-8 mb-6 hidden" id="step-2">
-    <h2 class="text-lg font-semibold text-slate-900 mb-1">รายละเอียดคำร้อง <span class="text-sm font-normal text-slate-500">Request Details</span></h2>
-    <p class="text-sm text-slate-500 mb-6">กรอกรายละเอียดที่จำเป็น — ระบบจะแสดงช่องที่ต้องกรอกเฉพาะตามหมวดที่เลือก</p>
-    <div class="space-y-5">
-      <div>
-        <label class="label">หัวเรื่อง <span class="req">*</span><span class="label-en">Subject</span></label>
-        <input type="text" class="input" id="f_subject" placeholder="สรุปคำร้องสั้นๆ ภายใน 1 บรรทัด">
-      </div>
-      <div>
-        <label class="label">รายละเอียด <span class="req">*</span><span class="label-en">Detail</span></label>
-        <textarea class="input" rows="4" id="f_detail" placeholder="อธิบายเหตุการณ์ ใคร เมื่อไหร่ ที่ไหน ต้องการให้ทำอะไร"></textarea>
-      </div>
-      <div id="dynamicFields"></div>
-      <div>
-        <label class="label">ไฟล์แนบ (Google Drive link)<span class="label-en">Attachment</span></label>
-        <input type="text" class="input" id="f_attachment" placeholder="https://drive.google.com/...">
-        <p class="text-xs text-slate-500 mt-1">อัปไฟล์ขึ้น Drive ตั้ง permission "Anyone with link" แล้ววาง URL ที่นี่</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- Step 3: Review -->
-  <div class="card p-8 mb-6 hidden" id="step-3">
-    <h2 class="text-lg font-semibold text-slate-900 mb-1">ทบทวนก่อนส่ง <span class="text-sm font-normal text-slate-500">Review &amp; Submit</span></h2>
-    <p class="text-sm text-slate-500 mb-6">ตรวจสอบข้อมูลให้ถูกต้องก่อนกด Submit</p>
-    <div id="reviewBox" class="space-y-3 text-sm"></div>
-    <div class="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
-      <i data-lucide="info" class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"></i>
-      <div class="text-sm text-amber-800">
-        เมื่อกด Submit ระบบจะ:
-        <ol class="list-decimal ml-5 mt-1 space-y-0.5 text-xs">
-          <li>สร้าง Ticket ID อัตโนมัติ (เช่น KP-2026-FIN-00012)</li>
-          <li>บันทึกชื่อ-แผนกของคุณจากบัญชี Google + Staff Roster</li>
-          <li>ส่ง email ตอบกลับให้คุณภายใน 1 นาที</li>
-          <li>มอบหมายให้ Admin ที่รับผิดชอบหมวดของคุณตามกฎ Auto-Assign</li>
-          <li>คุณติดตามได้ที่หน้า "ติดตามสถานะ"</li>
-        </ol>
-      </div>
-    </div>
-  </div>
-
-  <!-- Nav buttons -->
-  <div class="flex items-center justify-between mt-6">
-    <button class="btn btn-secondary" id="btnPrev" disabled style="opacity:.5">
-      <i data-lucide="arrow-left" class="w-4 h-4"></i> ย้อนกลับ / Back
-    </button>
-    <div class="flex gap-2">
-      <button class="btn btn-ghost" id="btnSaveDraft"><i data-lucide="save" class="w-4 h-4"></i> บันทึกฉบับร่าง</button>
-      <button class="btn btn-primary" id="btnNext">
-        ถัดไป / Next <i data-lucide="arrow-right" class="w-4 h-4"></i>
-      </button>
-      <button class="btn btn-primary hidden" id="btnSubmit" style="background:#10B981">
-        <i data-lucide="send" class="w-4 h-4"></i> ส่งคำร้อง / Submit
-      </button>
-    </div>
-  </div>
-</section>
-
 <!-- =====================================================================
      PAGE 2: TRACK STATUS
      ===================================================================== -->
@@ -429,15 +276,30 @@
       </div>
 
       <div class="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-lg">
-        <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center justify-between mb-3">
           <div class="text-sm font-semibold text-slate-700">มอบหมายให้ / Assigned To</div>
-          <button class="btn btn-ghost text-xs" style="padding:4px 10px"><i data-lucide="user-cog" class="w-3 h-3"></i> เปลี่ยน Admin</button>
+          <span class="text-xs text-slate-500" id="m_assignStatus">—</span>
         </div>
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center">A2</div>
-          <div>
-            <div class="font-medium text-sm">Admin 2 — HR/FIN</div>
-            <div class="text-xs text-slate-500">admin2@aotga.local · มอบหมายเมื่อ 25 พ.ค. 14:45</div>
+        <div class="flex items-center gap-3 mb-3" id="m_assigneeBox">
+          <div class="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center" id="m_assigneeAvatar">?</div>
+          <div class="flex-1">
+            <div class="font-medium text-sm" id="m_assigneeName">— ยังไม่ได้มอบหมาย —</div>
+            <div class="text-xs text-slate-500" id="m_assigneeMeta"></div>
+          </div>
+        </div>
+        <!-- Distribute / Re-assign — supervisor เท่านั้น -->
+        <div class="pt-3 border-t border-blue-100" id="m_distributeBox">
+          <div class="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1">
+            <i data-lucide="users" class="w-3 h-3"></i>
+            กระจายงาน / Distribute (Supervisor)
+          </div>
+          <div class="flex gap-2">
+            <select class="input flex-1" id="m_assignSelect" style="padding:8px 12px;font-size:13px">
+              <option value="">— เลือกพนักงาน —</option>
+            </select>
+            <button class="btn btn-primary" id="m_btnAssign" style="padding:8px 14px;font-size:13px">
+              <i data-lucide="send" class="w-3 h-3"></i> มอบหมาย
+            </button>
           </div>
         </div>
       </div>
@@ -606,14 +468,6 @@ const DYNAMIC_FIELDS = {
   ]
 };
 
-const ADMINS = [
-  { id:'ADM-01', name:'Admin-PSA (Lead)',  email:'hktadminpsa@aotga.com', initials:'A1', load:8,  focus:'ทุกหมวด' },
-  { id:'ADM-02', name:'Admin 2 — HR/FIN',  email:'admin2@aotga.local',   initials:'A2', load:6,  focus:'HR, FIN' },
-  { id:'ADM-03', name:'Admin 3 — PRC/AST', email:'admin3@aotga.local',   initials:'A3', load:5,  focus:'PRC, AST' },
-  { id:'ADM-04', name:'Admin 4 — MNT/DOC', email:'admin4@aotga.local',   initials:'A4', load:4,  focus:'MNT, DOC' },
-  { id:'ADM-05', name:'Admin 5 — COR',     email:'admin5@aotga.local',   initials:'A5', load:4,  focus:'COR' }
-];
-
 const STAGES = [
   { code:'S1_Received',   name:'รับเรื่อง',       en:'Received',   color:'#3B82F6' },
   { code:'S2_Reviewing',  name:'ตรวจสอบ',         en:'Reviewing',  color:'#F59E0B' },
@@ -623,17 +477,21 @@ const STAGES = [
   { code:'S6_Closed',     name:'ปิดเคส',          en:'Closed',     color:'#059669' }
 ];
 
+// assignedToEmp = Emp_Code ของพนักงานที่ถูกมอบหมาย (null = unassigned)
 const TICKETS = [
-  { id:'KP-2026-FIN-00012', subject:'ค่าปรับ ตม. SCOOT TR2123 25 พ.ค.', dept:'KP', cat:'FIN', sub:'FIN-2.1', subName:'เงินทดรองจ่าย', prio:'Urgent', stage:'S4_Processing', assignedTo:'A2', requester:'สมชาย ใจดี', created:'25 พ.ค. 14:32', overdue:false },
-  { id:'LP-2026-MNT-00004', subject:'แอร์ห้อง PB102 ไม่เย็น',         dept:'LP', cat:'MNT', sub:'MNT-4.1', subName:'แจ้งซ่อมด่วน',   prio:'Urgent', stage:'S3_Assigned',   assignedTo:'A4', requester:'มาลี สวยงาม', created:'25 พ.ค. 11:20', overdue:false },
-  { id:'KP-2026-FIN-00011', subject:'Hotel Delay ผดส. AKASA QP441',   dept:'KP', cat:'FIN', sub:'FIN-2.1', subName:'เงินทดรองจ่าย', prio:'Critical', stage:'S5_Sent',     assignedTo:'A2', requester:'อนุชา สง่า',  created:'24 พ.ค. 22:14', overdue:false },
-  { id:'LL-2026-PRC-00007', subject:'จัดซื้อ Baggage Tag 5000 ใบ',     dept:'LL', cat:'PRC', sub:'PRC-3.2', subName:'วัสดุสิ้นเปลือง',prio:'Normal', stage:'S2_Reviewing',  assignedTo:'A3', requester:'วิทยา อยู่ดี',created:'25 พ.ค. 09:00', overdue:true },
-  { id:'KP-2026-HR-00018',  subject:'OT ค่าด่านศุลกากร พ.ค.',         dept:'KP', cat:'HR',  sub:'HR-1.3',  subName:'ค่าล่วงเวลา',   prio:'Normal', stage:'S1_Received',   assignedTo:null, requester:'ณภัทร ลำพอง',created:'25 พ.ค. 16:08', overdue:false },
-  { id:'LP-2026-DOC-00003', subject:'Ramp Pass พนักงานใหม่ 3 คน',    dept:'LP', cat:'DOC', sub:'DOC-6.1', subName:'Ramp Pass',     prio:'Normal', stage:'S4_Processing', assignedTo:'A4', requester:'กรกช ใจกล้า',created:'24 พ.ค. 10:00', overdue:false },
-  { id:'KP-2026-COR-00002', subject:'Business Trip Scoot @SIN มิ.ย.',  dept:'KP', cat:'COR', sub:'COR-7.3', subName:'Business Trip', prio:'Normal', stage:'S2_Reviewing',  assignedTo:'A5', requester:'สมชาย ใจดี',  created:'23 พ.ค. 14:00', overdue:false },
-  { id:'LL-2026-AST-00005', subject:'ย้ายตู้เอกสาร LL → PB102',        dept:'LL', cat:'AST', sub:'AST-5.1', subName:'โอนย้ายทรัพย์สิน',prio:'Normal',stage:'S3_Assigned', assignedTo:'A3', requester:'วิทยา อยู่ดี',created:'25 พ.ค. 13:00', overdue:false },
-  { id:'KP-2026-MNT-00009', subject:'PM Wheelchair 6 เดือน',           dept:'KP', cat:'MNT', sub:'MNT-4.2', subName:'PM',            prio:'Normal', stage:'S6_Closed',     assignedTo:'A4', requester:'มาลี สวยงาม', created:'20 พ.ค. 09:00', overdue:false }
+  { id:'KP-2026-FIN-00012', subject:'ค่าปรับ ตม. SCOOT TR2123 25 พ.ค.', dept:'KP', cat:'FIN', sub:'FIN-2.1', subName:'เงินทดรองจ่าย', prio:'Urgent',   stage:'S4_Processing', assignedToEmp:'2202011', requester:'สมชาย ใจดี',   created:'25 พ.ค. 14:32', overdue:false },
+  { id:'LP-2026-MNT-00004', subject:'แอร์ห้อง PB102 ไม่เย็น',           dept:'LP', cat:'MNT', sub:'MNT-4.1', subName:'แจ้งซ่อมด่วน',   prio:'Urgent',   stage:'S3_Assigned',   assignedToEmp:'2506761', requester:'มาลี สวยงาม',  created:'25 พ.ค. 11:20', overdue:false },
+  { id:'KP-2026-FIN-00011', subject:'Hotel Delay ผดส. AKASA QP441',    dept:'KP', cat:'FIN', sub:'FIN-2.1', subName:'เงินทดรองจ่าย', prio:'Critical', stage:'S5_Sent',       assignedToEmp:'2100935', requester:'อนุชา สง่า',   created:'24 พ.ค. 22:14', overdue:false },
+  { id:'LL-2026-PRC-00007', subject:'จัดซื้อ Baggage Tag 5000 ใบ',      dept:'LL', cat:'PRC', sub:'PRC-3.2', subName:'วัสดุสิ้นเปลือง',prio:'Normal',  stage:'S2_Reviewing',  assignedToEmp:'2302860', requester:'วิทยา อยู่ดี', created:'25 พ.ค. 09:00', overdue:true  },
+  { id:'KP-2026-HR-00018',  subject:'OT ค่าด่านศุลกากร พ.ค.',          dept:'KP', cat:'HR',  sub:'HR-1.3',  subName:'ค่าล่วงเวลา',    prio:'Normal',  stage:'S1_Received',   assignedToEmp:null,      requester:'ณภัทร ลำพอง',  created:'25 พ.ค. 16:08', overdue:false },
+  { id:'LP-2026-DOC-00003', subject:'Ramp Pass พนักงานใหม่ 3 คน',      dept:'LP', cat:'DOC', sub:'DOC-6.1', subName:'Ramp Pass',     prio:'Normal',  stage:'S4_Processing', assignedToEmp:'2506762', requester:'กรกช ใจกล้า',  created:'24 พ.ค. 10:00', overdue:false },
+  { id:'KP-2026-COR-00002', subject:'Business Trip Scoot @SIN มิ.ย.',   dept:'KP', cat:'COR', sub:'COR-7.3', subName:'Business Trip', prio:'Normal',  stage:'S2_Reviewing',  assignedToEmp:'2506243', requester:'สมชาย ใจดี',   created:'23 พ.ค. 14:00', overdue:false },
+  { id:'LL-2026-AST-00005', subject:'ย้ายตู้เอกสาร LL → PB102',         dept:'LL', cat:'AST', sub:'AST-5.1', subName:'โอนย้ายทรัพย์สิน',prio:'Normal', stage:'S3_Assigned',   assignedToEmp:'2506761', requester:'วิทยา อยู่ดี', created:'25 พ.ค. 13:00', overdue:false },
+  { id:'KP-2026-MNT-00009', subject:'PM Wheelchair 6 เดือน',            dept:'KP', cat:'MNT', sub:'MNT-4.2', subName:'PM',            prio:'Normal',  stage:'S6_Closed',     assignedToEmp:'2506762', requester:'มาลี สวยงาม',  created:'20 พ.ค. 09:00', overdue:false }
 ];
+
+function staffByEmp(emp) { return STAFF_ROSTER.find(s => s.emp === emp); }
+function ticketAssigneeNick(t) { const s = staffByEmp(t.assignedToEmp); return s ? s.nick : null; }
 
 const CHECKLIST_S4_FIN = [
   { stage:'S1_Received',  text:'ตรวจ ticket ใหม่ใน Inbox',           en:'Check new ticket', done:true },
@@ -648,239 +506,6 @@ const CHECKLIST_S4_FIN = [
   { stage:'S5_Sent',      text:'ส่งหลักฐานให้ผู้ขอคำร้อง',            en:'Send proof to requester', done:false },
   { stage:'S6_Closed',    text:'บันทึก Resolution Note + Filing',     en:'Record resolution + filing', done:false }
 ];
-
-// ===== STATE =====
-const TOTAL_STEPS = 3;
-let currentStep = 1;
-let currentStaff = null;          // staff record ที่ active (ใช้สำหรับ submit)
-let identityMatches = [];         // staff records ทั้งหมดที่ map กับ signed-in email
-let formData = { empCode:'', cat:'', sub:'', prio:'Normal', subject:'', detail:'', attachment:'', dynamic:{} };
-let lang = 'TH';
-
-// ===== IDENTITY (Signed-in user → Staff Roster) =====
-function resolveIdentity() {
-  const lower = SIGNED_IN_EMAIL.toLowerCase();
-  identityMatches = STAFF_ROSTER.filter(s =>
-    (s.email || '').toLowerCase() === lower ||
-    (s.email_alt || '').toLowerCase() === lower
-  );
-  if (!identityMatches.length) {
-    // fallback: ไม่พบใน roster — แสดงเฉพาะอีเมล
-    currentStaff = null;
-    document.getElementById('idFullName').textContent = '(ไม่พบใน Staff Roster)';
-    document.getElementById('idNickname').textContent = '';
-    document.getElementById('idPosition').textContent = '—';
-    document.getElementById('idDept').textContent = '—';
-    document.getElementById('idEmpCode').textContent = '—';
-    document.getElementById('idEmail').textContent = SIGNED_IN_EMAIL;
-    document.getElementById('idAvatar').textContent = '?';
-    return;
-  }
-  // เลือกค่า default = match แรก หรือคนที่ formData.empCode ระบุไว้
-  currentStaff = identityMatches.find(s => s.emp === formData.empCode) || identityMatches[0];
-  formData.empCode = currentStaff.emp;
-
-  // ถ้ามีหลายคน → แสดง dropdown ให้เลือก
-  if (identityMatches.length > 1) {
-    const sw = document.getElementById('idSwitch');
-    sw.classList.remove('hidden');
-    const sel = document.getElementById('idSelect');
-    sel.innerHTML = identityMatches.map(s =>
-      `<option value="${s.emp}" ${s.emp===currentStaff.emp?'selected':''}>${s.nick} — ${s.first} ${s.last} (${s.emp})</option>`
-    ).join('');
-    sel.onchange = () => {
-      currentStaff = identityMatches.find(s => s.emp === sel.value) || identityMatches[0];
-      formData.empCode = currentStaff.emp;
-      renderIdentity();
-    };
-  } else {
-    document.getElementById('idSwitch').classList.add('hidden');
-  }
-  renderIdentity();
-}
-
-function renderIdentity() {
-  if (!currentStaff) return;
-  document.getElementById('idFullName').textContent = currentStaff.title + currentStaff.first + ' ' + currentStaff.last;
-  document.getElementById('idNickname').textContent = '(' + currentStaff.nick + ')';
-  document.getElementById('idPosition').textContent = currentStaff.pos;
-  document.getElementById('idDept').textContent = currentStaff.dept_th + ' [' + currentStaff.dept + ']';
-  document.getElementById('idEmpCode').textContent = 'EMP ' + currentStaff.emp;
-  document.getElementById('idEmail').textContent = currentStaff.email;
-  document.getElementById('idAvatar').textContent = (currentStaff.nick || currentStaff.first || '?').slice(0,1);
-  // sync top nav
-  document.getElementById('navUserEmail').textContent = currentStaff.email;
-  document.getElementById('navUserInitial').textContent = (currentStaff.nick || '?').slice(0,1);
-}
-
-// ===== ROUTING =====
-function showPage(p) {
-  ['form','track','admin'].forEach(x => document.getElementById('page-'+x).classList.toggle('hidden', x!==p));
-  document.querySelectorAll('.nav-link').forEach(n => n.classList.toggle('active', n.dataset.page===p));
-  if (p==='admin') renderAdmin();
-}
-document.querySelectorAll('.nav-link').forEach(n => n.addEventListener('click', () => showPage(n.dataset.page)));
-
-// ===== STEP NAVIGATION (3 steps) =====
-function showStep(n) {
-  currentStep = n;
-  for (let i=1;i<=TOTAL_STEPS;i++) document.getElementById('step-'+i).classList.toggle('hidden', i!==n);
-  document.querySelectorAll('[data-step]').forEach(el => {
-    const i = parseInt(el.dataset.step,10);
-    const c = el.querySelector('.step-circle');
-    c.classList.remove('done','active','todo');
-    if (i<n) { c.classList.add('done'); c.innerHTML='<i data-lucide="check" class="w-4 h-4"></i>'; }
-    else if (i===n) { c.classList.add('active'); c.textContent=i; }
-    else { c.classList.add('todo'); c.textContent=i; }
-  });
-  const pct = Math.round((n/TOTAL_STEPS)*100);
-  document.getElementById('stepLabel').textContent = n + ' of ' + TOTAL_STEPS;
-  document.getElementById('stepPct').textContent = pct + '%';
-  document.getElementById('progressFill').style.width = pct + '%';
-  document.getElementById('btnPrev').disabled = n===1;
-  document.getElementById('btnPrev').style.opacity = n===1 ? .5 : 1;
-  document.getElementById('btnNext').classList.toggle('hidden', n===TOTAL_STEPS);
-  document.getElementById('btnSubmit').classList.toggle('hidden', n!==TOTAL_STEPS);
-  if (n===2) renderDynamicFields();
-  if (n===TOTAL_STEPS) renderReview();
-  lucide.createIcons();
-}
-
-document.getElementById('btnNext').addEventListener('click', () => {
-  saveStep();
-  if (validateStep()) showStep(currentStep+1);
-});
-document.getElementById('btnPrev').addEventListener('click', () => { saveStep(); showStep(currentStep-1); });
-document.getElementById('btnSaveDraft').addEventListener('click', () => { saveStep(); toast('บันทึกฉบับร่างแล้ว','Draft saved to your browser'); });
-document.getElementById('btnSubmit').addEventListener('click', () => {
-  if (!currentStaff) { toast('ไม่พบรายชื่อใน Staff Roster','กรุณาแจ้ง Admin เพิ่มอีเมลของคุณก่อนส่ง',true); return; }
-  const deptCode = currentStaff.dept;
-  const id = deptCode + '-2026-' + formData.cat + '-' + String(Math.floor(Math.random()*99999)).padStart(5,'0');
-  toast('ส่งคำร้องสำเร็จ · '+id, 'Email ตอบกลับถูกส่งไปยัง ' + currentStaff.email);
-  setTimeout(() => {
-    formData = { empCode: currentStaff.emp, cat:'', sub:'', prio:'Normal', subject:'', detail:'', attachment:'', dynamic:{} };
-    loadStep();
-    renderCategories();
-    document.getElementById('subSelect').classList.add('hidden');
-    showStep(1);
-  }, 1500);
-});
-
-function saveStep() {
-  if (document.getElementById('f_sub')) formData.sub = document.getElementById('f_sub').value;
-  if (document.getElementById('f_prio')) formData.prio = document.getElementById('f_prio').value;
-  const subj = document.getElementById('f_subject'); if (subj) formData.subject = subj.value;
-  const det = document.getElementById('f_detail'); if (det) formData.detail = det.value;
-  const att = document.getElementById('f_attachment'); if (att) formData.attachment = att.value;
-  document.querySelectorAll('[data-dyn]').forEach(el => formData.dynamic[el.dataset.dyn] = el.value);
-  try { localStorage.setItem('sr_draft', JSON.stringify(formData)); } catch(e){}
-}
-function loadStep() {
-  try {
-    const d = localStorage.getItem('sr_draft');
-    if (d) formData = Object.assign(formData, JSON.parse(d));
-  } catch(e){}
-  if (document.getElementById('f_subject')) document.getElementById('f_subject').value = formData.subject || '';
-  if (document.getElementById('f_detail')) document.getElementById('f_detail').value = formData.detail || '';
-  if (document.getElementById('f_attachment')) document.getElementById('f_attachment').value = formData.attachment || '';
-}
-function validateStep() {
-  if (!currentStaff) { toast('ไม่พบรายชื่อใน Staff Roster','กรุณาแจ้ง Admin เพิ่มอีเมลของคุณก่อนส่ง',true); return false; }
-  if (currentStep===1) {
-    if (!formData.cat || !formData.sub) { toast('กรุณาเลือกหมวดและหมวดย่อย','Please select category & sub',true); return false; }
-  }
-  if (currentStep===2) {
-    if (!formData.subject || !formData.detail) { toast('กรุณากรอกหัวเรื่องและรายละเอียด','Please complete subject & details',true); return false; }
-  }
-  return true;
-}
-
-// ===== Step 1: Category grid =====
-function renderCategories() {
-  const grid = document.getElementById('catGrid');
-  grid.innerHTML = CATEGORIES.map(c => `
-    <div class="card card-hover p-5 cursor-pointer ${formData.cat===c.code ? 'ring-2 ring-blue-500 border-blue-500' : ''}" data-cat="${c.code}">
-      <div class="flex items-start gap-3">
-        <div class="w-10 h-10 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center flex-shrink-0">
-          <i data-lucide="${c.icon}" class="w-5 h-5"></i>
-        </div>
-        <div class="flex-1">
-          <div class="font-semibold text-slate-900">${c.name_th}</div>
-          <div class="text-xs text-slate-500">${c.name_en}</div>
-          <div class="text-xs text-slate-600 mt-1">${c.desc}</div>
-        </div>
-      </div>
-    </div>
-  `).join('');
-  grid.querySelectorAll('[data-cat]').forEach(el => el.addEventListener('click', () => {
-    formData.cat = el.dataset.cat;
-    renderCategories();
-    renderSubCategories();
-    document.getElementById('subSelect').classList.remove('hidden');
-  }));
-  lucide.createIcons();
-}
-function renderSubCategories() {
-  const sel = document.getElementById('f_sub');
-  const subs = SUBS_BY_CAT[formData.cat] || [];
-  sel.innerHTML = '<option value="">— เลือก —</option>' + subs.map(s => `<option value="${s.code}">${s.code} — ${s.name}</option>`).join('');
-  sel.value = formData.sub || '';
-  sel.onchange = () => formData.sub = sel.value;
-}
-
-// ===== Step 2: Dynamic fields =====
-function renderDynamicFields() {
-  const box = document.getElementById('dynamicFields');
-  const fields = DYNAMIC_FIELDS[formData.cat] || [];
-  if (!fields.length) { box.innerHTML = '<div class="text-xs text-slate-500 italic">ไม่มี dynamic field สำหรับหมวดนี้</div>'; return; }
-  box.innerHTML = '<div class="text-xs text-slate-500 mb-3 uppercase tracking-wider font-semibold">รายละเอียดเฉพาะหมวด · Category-specific fields</div>' +
-    fields.map(f => {
-      const required = f.req ? '<span class="req">*</span>' : '';
-      const id = 'dyn_' + f.label.replace(/[^\w]/g,'_');
-      if (f.type==='select') {
-        return `<div class="mb-4"><label class="label">${f.label} ${required}</label>
-          <select class="input" data-dyn="${f.label}" id="${id}">
-            <option value="">— เลือก —</option>
-            ${f.options.map(o => `<option>${o}</option>`).join('')}
-          </select></div>`;
-      } else if (f.type==='textarea') {
-        return `<div class="mb-4"><label class="label">${f.label} ${required}</label>
-          <textarea class="input" rows="2" data-dyn="${f.label}" id="${id}"></textarea></div>`;
-      } else {
-        return `<div class="mb-4"><label class="label">${f.label} ${required}</label>
-          <input type="${f.type}" class="input" data-dyn="${f.label}" id="${id}"></div>`;
-      }
-    }).join('');
-}
-
-// ===== Step 3: Review =====
-function renderReview() {
-  const dyn = Object.keys(formData.dynamic).filter(k => formData.dynamic[k]).map(k => `<div class="flex justify-between py-1 border-b border-slate-100"><span class="text-slate-500 text-xs">${k}</span><span class="font-medium">${formData.dynamic[k]}</span></div>`).join('');
-  const s = currentStaff || { title:'', first:'—', last:'', nick:'—', emp:'—', email:'—', pos:'—', dept_th:'—', dept:'—' };
-  document.getElementById('reviewBox').innerHTML = `
-    <div class="card p-5">
-      <div class="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-3">ผู้ส่งคำร้อง (ดึงจากบัญชี Google)</div>
-      <div class="grid grid-cols-2 gap-4">
-        <div><div class="text-xs text-slate-500">ชื่อ–นามสกุล</div><div class="font-medium">${s.title}${s.first} ${s.last} <span class="text-slate-500">(${s.nick})</span></div></div>
-        <div><div class="text-xs text-slate-500">รหัสพนักงาน</div><div class="font-medium font-mono">${s.emp}</div></div>
-        <div><div class="text-xs text-slate-500">แผนก</div><div class="font-medium">${s.dept_th} <span class="text-slate-500">[${s.dept}]</span></div></div>
-        <div><div class="text-xs text-slate-500">ตำแหน่ง</div><div class="font-medium">${s.pos}</div></div>
-        <div class="col-span-2"><div class="text-xs text-slate-500">อีเมล</div><div class="font-medium">${s.email}</div></div>
-      </div>
-    </div>
-    <div class="card p-5">
-      <div class="grid grid-cols-2 gap-4 mb-3">
-        <div><div class="text-xs text-slate-500">หมวด</div><div class="font-medium">${formData.cat || '—'}</div></div>
-        <div><div class="text-xs text-slate-500">หมวดย่อย</div><div class="font-medium">${formData.sub || '—'}</div></div>
-        <div><div class="text-xs text-slate-500">Priority</div><div class="font-medium"><span class="pill" style="background:#FEF3C7;color:#92400E">${formData.prio}</span></div></div>
-      </div>
-      <div class="mb-3"><div class="text-xs text-slate-500">หัวเรื่อง</div><div class="font-medium">${formData.subject || '—'}</div></div>
-      <div class="mb-3"><div class="text-xs text-slate-500">รายละเอียด</div><div class="text-sm bg-slate-50 p-3 rounded">${formData.detail || '—'}</div></div>
-      ${dyn ? `<div class="mt-3 pt-3 border-t border-slate-100"><div class="text-xs text-slate-500 mb-2">รายละเอียดเฉพาะหมวด</div>${dyn}</div>` : ''}
-      ${formData.attachment ? `<div class="mt-3"><div class="text-xs text-slate-500">ไฟล์แนบ</div><a class="text-blue-600 text-sm" href="${formData.attachment}" target="_blank">${formData.attachment}</a></div>` : ''}
-    </div>
-  `;
-}
 
 // ===== Track page =====
 function renderTrack(rows) {
@@ -960,19 +585,22 @@ document.getElementById('trackQuery').addEventListener('keydown', (e) => { if (e
 
 // ===== Admin Dashboard =====
 function renderAdmin() {
-  document.getElementById('workloadList').innerHTML = ADMINS.map(a => {
-    const pct = Math.min(100, (a.load/20)*100);
+  const MAX_LOAD = 15;
+  const openStages = ['S1_Received','S2_Reviewing','S3_Assigned','S4_Processing','S5_Sent'];
+  document.getElementById('workloadList').innerHTML = STAFF_ROSTER.map(s => {
+    const load = TICKETS.filter(t => t.assignedToEmp === s.emp && openStages.indexOf(t.stage) >= 0).length;
+    const pct = Math.min(100, (load/MAX_LOAD)*100);
     return `
     <div>
       <div class="flex items-center justify-between mb-1">
         <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center">${a.initials}</div>
+          <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center">${s.nick.slice(0,1)}</div>
           <div>
-            <div class="text-sm font-medium">${a.name}</div>
-            <div class="text-xs text-slate-500">${a.focus}</div>
+            <div class="text-sm font-medium">${s.nick} <span class="text-slate-500 font-normal">— ${s.first} ${s.last}</span></div>
+            <div class="text-xs text-slate-500">${s.pos} · ${s.dept} · ${s.emp}</div>
           </div>
         </div>
-        <div class="text-sm font-semibold">${a.load} <span class="text-xs text-slate-500">/ 20</span></div>
+        <div class="text-sm font-semibold">${load} <span class="text-xs text-slate-500">/ ${MAX_LOAD}</span></div>
       </div>
       <div class="stat-bar"><div class="stat-bar-fill" style="width:${pct}%;background:${pct>80?'#EF4444':pct>60?'#F59E0B':'#3B82F6'}"></div></div>
     </div>`;
@@ -1010,7 +638,9 @@ function renderAdmin() {
         </div>
         <span class="text-xs font-bold text-slate-500">${items.length}</span>
       </div>
-      ${items.map(t => `
+      ${items.map(t => {
+        const nick = ticketAssigneeNick(t);
+        return `
         <div class="kanban-card" data-tid="${t.id}">
           <div class="flex items-start justify-between mb-1">
             <span class="font-mono text-xs text-slate-500">${t.id}</span>
@@ -1019,10 +649,11 @@ function renderAdmin() {
           <div class="text-sm font-medium text-slate-900 leading-snug mb-2">${t.subject}</div>
           <div class="flex items-center justify-between text-xs text-slate-500">
             <span>${t.dept} · ${t.cat}</span>
-            ${t.assignedTo ? `<span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center">${t.assignedTo}</span>` : '<span class="text-amber-600">⚠ unassigned</span>'}
+            ${nick ? `<span class="pill" style="background:#EEF2FF;color:#3730A3;padding:1px 8px;font-size:11px">👤 ${nick}</span>` : '<span class="text-amber-600">⚠ unassigned</span>'}
           </div>
           ${t.overdue ? '<div class="mt-2 text-xs text-red-600 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i> Overdue</div>' : ''}
-        </div>`).join('')}
+        </div>`;
+      }).join('')}
       ${!items.length ? `<div class="text-center text-xs text-slate-400 py-6">— ว่าง —</div>` : ''}
     </div>`;
   }).join('');
@@ -1047,6 +678,39 @@ function openTicketModal(tid) {
       <div class="text-xs text-slate-500">${s.en}</div>
     </div>
   `).join('');
+
+  // === Assignee box ===
+  const assignee = staffByEmp(t.assignedToEmp);
+  if (assignee) {
+    document.getElementById('m_assigneeAvatar').textContent = assignee.nick.slice(0,1);
+    document.getElementById('m_assigneeName').textContent = assignee.nick + ' — ' + assignee.first + ' ' + assignee.last;
+    document.getElementById('m_assigneeMeta').textContent = assignee.pos + ' · ' + assignee.dept + ' · ' + assignee.email + (assignee.email_alt ? ' / ' + assignee.email_alt : '');
+    document.getElementById('m_assignStatus').textContent = '✓ มอบหมายแล้ว';
+    document.getElementById('m_assignStatus').style.color = '#059669';
+  } else {
+    document.getElementById('m_assigneeAvatar').textContent = '?';
+    document.getElementById('m_assigneeName').textContent = '— ยังไม่ได้มอบหมาย —';
+    document.getElementById('m_assigneeMeta').textContent = 'รอ Supervisor กระจายงาน';
+    document.getElementById('m_assignStatus').textContent = '⚠ unassigned';
+    document.getElementById('m_assignStatus').style.color = '#D97706';
+  }
+
+  // === Distribute dropdown ===
+  const sel = document.getElementById('m_assignSelect');
+  sel.innerHTML = '<option value="">— เลือกพนักงาน —</option>' + STAFF_ROSTER.map(s =>
+    `<option value="${s.emp}" ${s.emp===t.assignedToEmp?'selected':''}>${s.nick} — ${s.first} ${s.last} (${s.dept} · ${s.pos})</option>`
+  ).join('');
+  document.getElementById('m_btnAssign').onclick = () => {
+    const emp = sel.value;
+    if (!emp) { toast('กรุณาเลือกพนักงาน','Please pick a staff member',true); return; }
+    const target = staffByEmp(emp);
+    t.assignedToEmp = emp;
+    // advance stage S1/S2 → S3_Assigned (mockup behavior)
+    if (t.stage === 'S1_Received' || t.stage === 'S2_Reviewing') t.stage = 'S3_Assigned';
+    toast('กระจายงานให้ ' + target.nick + ' แล้ว', 'Notification เด้งไป ' + target.email + ' (CC: ' + (target.email_alt || '-') + ')');
+    openTicketModal(tid);
+    renderAdmin();
+  };
   const done = CHECKLIST_S4_FIN.filter(c => c.done).length;
   document.getElementById('ckProgress').textContent = done;
   document.getElementById('ckTotal').textContent = CHECKLIST_S4_FIN.length;
@@ -1084,6 +748,8 @@ function toast(title, body, error) {
   setTimeout(() => t.classList.add('hidden'), 3500);
 }
 
+let lang = 'TH';
+
 // ===== Lang toggle (placeholder) =====
 document.getElementById('langToggle').addEventListener('click', () => {
   lang = lang==='TH' ? 'EN' : 'TH';
@@ -1091,18 +757,9 @@ document.getElementById('langToggle').addEventListener('click', () => {
 });
 
 // ===== Init =====
-resolveIdentity();
-showStep(1);
-loadStep();
-renderCategories();
+showPage('admin');
 renderTrack(TICKETS.slice(0,5));
 lucide.createIcons();
-['f_subject','f_detail','f_attachment'].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener('change', saveStep);
-});
-const fsub = document.getElementById('f_sub'); if (fsub) fsub.addEventListener('change', () => { formData.sub = fsub.value; });
-const fprio = document.getElementById('f_prio'); if (fprio) fprio.addEventListener('change', () => { formData.prio = fprio.value; });
 </script>
 </body>
 </html>
