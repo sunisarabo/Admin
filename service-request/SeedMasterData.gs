@@ -156,12 +156,14 @@ const SEED = {
 
   // 09_Staff_Roster ถูก seed โดย createStaffSheet_() ใน Code.gs
 
+  // 10_Admins = ผู้ที่มีสิทธิ์เข้า Admin Dashboard / กระจายงาน
+  //   - ไอซ์ login ด้วย sunisara.bo@aotga.com เพื่อ assign งานให้พนักงานในทีม
+  //   - hktadminpsa@aotga.com เป็น shared inbox + fallback admin
   '10_Admins': {
     columns: ['Admin_ID', 'Display_Name', 'Email', 'Department_Focus', 'Max_Active_Tickets', 'Active'],
     rows: [
-      ['ADM-01', 'Admin-PSA (Lead)',      'hktadminpsa@aotga.com', 'ทุกหมวด',          20, 'yes'],
-      ['ADM-02', 'Admin-LL',              'hktadminll@aotga.com',  'LL / MNT / DOC',   20, 'yes'],
-      ['ADM-03', 'ไอซ์ (Supervisor)',     'sunisara.bo@aotga.com', 'HR / FIN',         20, 'yes']
+      ['ADM-01', 'ไอซ์ (Supervisor)',     'sunisara.bo@aotga.com', 'ทุกหมวด — กระจายงาน', 30, 'yes'],
+      ['ADM-02', 'Admin-PSA (Shared)',    'hktadminpsa@aotga.com', 'Shared inbox',         50, 'yes']
     ]
   },
 
@@ -179,17 +181,20 @@ const SEED = {
     ]
   },
 
+  // Assignment Rules: ทุกหมวด default ไปที่ไอซ์ (supervisor) เพื่อ triage แล้วกระจายให้
+  // พนักงานในทีมต่อด้วย assignTicketToStaff(ticketId, empCode) — notification เด้งไป
+  // shared inbox (hktadminpsa@aotga.com) ที่ทีมรับร่วมกัน
   '12_Assignment_Rules': {
     columns: ['Cat_Code', 'Auto_Assign', 'Preferred_Admin_Emails', 'Fallback_Admin_Email', 'Note'],
     rows: [
-      ['HR',  'yes', 'sunisara.bo@aotga.com',                          'hktadminpsa@aotga.com', 'งาน HR → ไอซ์'],
-      ['FIN', 'yes', 'sunisara.bo@aotga.com;hktadminpsa@aotga.com',   'hktadminpsa@aotga.com', 'งานการเงิน → ไอซ์ / PSA'],
-      ['PRC', 'yes', 'hktadminpsa@aotga.com',                          '',                       'งานจัดซื้อ → PSA'],
-      ['MNT', 'yes', 'hktadminll@aotga.com',                           'hktadminpsa@aotga.com', 'งานซ่อมบำรุง → LL'],
-      ['AST', 'yes', 'hktadminll@aotga.com',                           'hktadminpsa@aotga.com', 'ทรัพย์สิน → LL'],
-      ['DOC', 'yes', 'hktadminll@aotga.com',                           'hktadminpsa@aotga.com', 'เอกสาร → LL'],
-      ['COR', 'yes', 'hktadminpsa@aotga.com',                          '',                       'ประสานงาน → PSA'],
-      ['OTH', 'no',  '',                                                'hktadminpsa@aotga.com', 'งานอื่นๆ → manual triage']
+      ['HR',  'yes', 'sunisara.bo@aotga.com', 'hktadminpsa@aotga.com', 'ไอซ์ triage → กระจายในทีม'],
+      ['FIN', 'yes', 'sunisara.bo@aotga.com', 'hktadminpsa@aotga.com', 'ไอซ์ triage → กระจายในทีม'],
+      ['PRC', 'yes', 'sunisara.bo@aotga.com', 'hktadminpsa@aotga.com', 'ไอซ์ triage → กระจายในทีม'],
+      ['MNT', 'yes', 'sunisara.bo@aotga.com', 'hktadminpsa@aotga.com', 'ไอซ์ triage → กระจายในทีม'],
+      ['AST', 'yes', 'sunisara.bo@aotga.com', 'hktadminpsa@aotga.com', 'ไอซ์ triage → กระจายในทีม'],
+      ['DOC', 'yes', 'sunisara.bo@aotga.com', 'hktadminpsa@aotga.com', 'ไอซ์ triage → กระจายในทีม'],
+      ['COR', 'yes', 'sunisara.bo@aotga.com', 'hktadminpsa@aotga.com', 'ไอซ์ triage → กระจายในทีม'],
+      ['OTH', 'yes', 'sunisara.bo@aotga.com', 'hktadminpsa@aotga.com', 'ไอซ์ triage → กระจายในทีม']
     ]
   },
 

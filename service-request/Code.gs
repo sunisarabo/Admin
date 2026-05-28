@@ -58,13 +58,15 @@ const CFG = {
   ],
 
   // seed รายชื่อพนักงานเริ่มต้น (แก้ Email เพิ่มเติมได้ใน Sheet โดยตรง)
+  // ทุกคนใช้ hktadminpsa@aotga.com เป็น shared inbox สำหรับรับ notification
+  // ส่วนไอซ์มี admin email แยก (sunisara.bo@aotga.com) — ดูใน 10_Admins
   STAFF_SEED: [
     ['2100935', 'นางสาว', 'พัชรินทร์',  'กริชสั้น',      'การโดยสาร ภูเก็ต',     'KP', 'Senior Administrative Officer', 'นัตตี้', 'hktadminpsa@aotga.com', 'yes'],
-    ['2202011', 'นางสาว', 'สุนิศรา',    'บุญยัง',        'การโดยสาร ภูเก็ต',     'KP', 'Administrative Supervisor',     'ไอซ์',   'sunisara.bo@aotga.com', 'yes'],
+    ['2202011', 'นางสาว', 'สุนิศรา',    'บุญยัง',        'การโดยสาร ภูเก็ต',     'KP', 'Administrative Supervisor',     'ไอซ์',   'hktadminpsa@aotga.com', 'yes'],
     ['2506243', 'นาย',    'พุฒิพงษ์',  'ทิพย์เขต',      'การโดยสาร ภูเก็ต',     'KP', 'Administrative Officer',        'แม็ค',   'hktadminpsa@aotga.com', 'yes'],
     ['2506762', 'นางสาว', 'กาญจนาพร',  'เภรินทวงค์',    'การโดยสาร ภูเก็ต',     'KP', 'Administrative Officer',        'ฟลุ๊ค',  'hktadminpsa@aotga.com', 'yes'],
-    ['2302860', 'นางสาว', 'ศิโรรัตน์',  'สุวรรณรัตน์',   'ติดตามสัมภาระ ภูเก็ต', 'LL', 'Administrative Officer',        'บีม',    'hktadminll@aotga.com',  'yes'],
-    ['2506761', 'นาย',    'พัทธพล',    'พานิช',         'ติดตามสัมภาระ ภูเก็ต', 'LL', 'Administrative Officer',        'ออย',    'hktadminll@aotga.com',  'yes']
+    ['2302860', 'นางสาว', 'ศิโรรัตน์',  'สุวรรณรัตน์',   'ติดตามสัมภาระ ภูเก็ต', 'LL', 'Administrative Officer',        'บีม',    'hktadminpsa@aotga.com', 'yes'],
+    ['2506761', 'นาย',    'พัทธพล',    'พานิช',         'ติดตามสัมภาระ ภูเก็ต', 'LL', 'Administrative Officer',        'ออย',    'hktadminpsa@aotga.com', 'yes']
   ],
 
   TICKET_COLUMNS: [
@@ -484,6 +486,61 @@ function assignTicket(ticketId, adminEmail) {
   } finally { try { lock.releaseLock(); } catch (e) {} }
 }
 
+/**
+ * Assign ticket ให้พนักงานในทีม (ไม่ใช่ admin) — lookup จาก Staff Roster ด้วย Emp_Code
+ *   - Assigned_To_Email = staff.Email (shared inbox)
+ *   - Assigned_To_Name = "ชื่อเล่น — ชื่อ สกุล"
+ *   - notification ส่งไปที่ staff.Email
+ *
+ * ใช้สำหรับ workflow: ไอซ์ (supervisor) login → กด "Assign to นัตตี้" →
+ * ระบบบันทึกชื่อ + เด้ง email ไป shared inbox
+ */
+function assignTicketToStaff(ticketId, empCode) {
+  if (!isAdmin_(Session.getActiveUser().getEmail())) return { ok: false, error: 'Unauthorized' };
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    const ss = openSS_();
+    const sh = ss.getSheetByName(CFG.SH.TICKETS);
+    const v = sh.getDataRange().getValues();
+    const headers = v[0];
+    const idCol = headers.indexOf('Ticket_ID');
+    const emailCol = headers.indexOf('Assigned_To_Email');
+    const nameCol = headers.indexOf('Assigned_To_Name');
+    const atCol = headers.indexOf('Assigned_At');
+    const stageCol = headers.indexOf('Stage');
+    const historyCol = headers.indexOf('Stages_History_JSON');
+    const updCol = headers.indexOf('Updated_At');
+
+    const staff = readSheet_(ss, CFG.SH.STAFF).find(s => String(s.Emp_Code) === String(empCode));
+    if (!staff) return { ok: false, error: 'Staff not found: ' + empCode };
+    const displayName = (staff.Nickname ? staff.Nickname + ' — ' : '') + staff.First_TH + ' ' + staff.Last_TH;
+
+    for (let i = 1; i < v.length; i++) {
+      if (v[i][idCol] === ticketId) {
+        const row = i + 1;
+        sh.getRange(row, emailCol + 1).setValue(staff.Email);
+        sh.getRange(row, nameCol + 1).setValue(displayName);
+        sh.getRange(row, atCol + 1).setValue(new Date());
+        sh.getRange(row, updCol + 1).setValue(new Date());
+
+        const curStage = v[i][stageCol];
+        if (curStage === 'S1_Received' || curStage === 'S2_Reviewing') {
+          sh.getRange(row, stageCol + 1).setValue('S3_Assigned');
+          const history = JSON.parse(v[i][historyCol] || '[]');
+          history.push({ stage: 'S3_Assigned', at: new Date().toISOString(), by: Session.getActiveUser().getEmail(), note: 'Assigned to ' + displayName + ' (' + empCode + ')' });
+          sh.getRange(row, historyCol + 1).setValue(JSON.stringify(history));
+        }
+
+        audit_(Session.getActiveUser().getEmail(), ticketId, 'ASSIGN_STAFF', 'Emp=' + empCode + ' Name=' + displayName + ' To=' + staff.Email);
+        safeCall_(() => sendStaffAssignmentEmail_(ticketId, staff, displayName, v[i], headers));
+        return { ok: true, assignedTo: displayName, email: staff.Email };
+      }
+    }
+    return { ok: false, error: 'Ticket not found' };
+  } finally { try { lock.releaseLock(); } catch (e) {} }
+}
+
 // ============================================================================
 // ADVANCE STAGE
 // ============================================================================
@@ -879,6 +936,25 @@ function sendAssignmentEmail_(ticketId, admin, row, headers) {
       + '<li>Priority: <b>' + row[prioCol] + '</b></li>'
       + '<li>ผู้ส่ง: ' + row[reqCol] + '</li>'
       + '</ul>'
+  });
+}
+
+function sendStaffAssignmentEmail_(ticketId, staff, displayName, row, headers) {
+  const subjCol = headers.indexOf('Subject');
+  const prioCol = headers.indexOf('Priority');
+  const reqCol = headers.indexOf('Requester_Name');
+  const subCol = headers.indexOf('Sub_Name_TH');
+  MailApp.sendEmail({
+    to: staff.Email,
+    subject: '[Assigned · ' + (staff.Nickname || displayName) + '] ' + ticketId + ' — ' + row[subjCol],
+    htmlBody: '<p>มี ticket มอบหมายให้ <b>' + displayName + '</b> (รหัส ' + staff.Emp_Code + ')</p>'
+      + '<ul>'
+      + '<li>Ticket: <b>' + ticketId + '</b></li>'
+      + '<li>หมวด: ' + row[subCol] + '</li>'
+      + '<li>Priority: <b>' + row[prioCol] + '</b></li>'
+      + '<li>ผู้ส่ง: ' + row[reqCol] + '</li>'
+      + '</ul>'
+      + '<p>เปิดดูใน Web App → Track Status หรือ Admin Dashboard</p>'
   });
 }
 
