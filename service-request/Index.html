@@ -263,13 +263,40 @@
      ===================================================================== -->
 <section id="page-track" class="fade-in hidden">
   <h1 class="text-2xl font-bold text-slate-900 mb-1">ติดตามสถานะคำร้อง <span class="text-base font-normal text-slate-500">Track Status</span></h1>
-  <p class="text-sm text-slate-600 mb-6">ค้นหาด้วย Ticket ID หรืออีเมลที่ใช้ส่งคำร้อง</p>
+  <p class="text-sm text-slate-600 mb-6">ค้นด้วย Ticket ID / Email หรือ browse ตามแผนก-สถานะ (เปิดให้แผนกอื่นๆ ตามงานข้ามแผนกได้)</p>
 
   <div class="card p-6 mb-6">
-    <div class="flex gap-3">
-      <input type="text" class="input flex-1" id="trackQuery" placeholder="เช่น KP-2026-FIN-00012 หรือ your@email.com">
+    <div class="flex flex-wrap gap-3 items-end">
+      <div class="flex-1 min-w-[240px]">
+        <label class="label text-xs">ค้นหา</label>
+        <input type="text" class="input" id="trackQuery" placeholder="เช่น KP-2026-FIN-00012 หรือ your@email.com">
+      </div>
+      <div>
+        <label class="label text-xs">แผนก / Dept</label>
+        <select class="input" id="trackDept" style="min-width:160px">
+          <option value="">ทุกแผนก / All</option>
+          <option value="KP">KP — Passenger Services</option>
+          <option value="LP">LP — Special Services</option>
+          <option value="LL">LL — Baggage Services</option>
+        </select>
+      </div>
+      <div>
+        <label class="label text-xs">สถานะ / Stage</label>
+        <select class="input" id="trackStage" style="min-width:180px">
+          <option value="">ทุกสถานะ / All</option>
+          <option value="__OPEN__">เปิดอยู่ทั้งหมด (S1-S5)</option>
+          <option value="S1_Received">S1 รับเรื่อง</option>
+          <option value="S2_Reviewing">S2 ตรวจสอบ</option>
+          <option value="S3_Assigned">S3 มอบหมายแล้ว</option>
+          <option value="S4_Processing">S4 กำลังดำเนินการ</option>
+          <option value="S5_Sent">S5 ส่งออก</option>
+          <option value="S6_Closed">S6 ปิดเคส</option>
+        </select>
+      </div>
       <button class="btn btn-primary" id="btnTrack"><i data-lucide="search" class="w-4 h-4"></i> ค้นหา / Search</button>
+      <button class="btn btn-secondary" id="btnTrackReset"><i data-lucide="x" class="w-4 h-4"></i> ล้าง</button>
     </div>
+    <div id="trackSummary" class="text-xs text-slate-500 mt-3 hidden"></div>
   </div>
 
   <div id="trackResults"></div>
@@ -890,12 +917,46 @@ function renderTrack(rows) {
 function prioColor(p) {
   return p==='Critical' ? ['#FEE2E2','#991B1B'] : p==='Urgent' ? ['#FEF3C7','#92400E'] : ['#D1FAE5','#065F46'];
 }
-document.getElementById('btnTrack').addEventListener('click', () => {
+function runTrackSearch() {
   const q = document.getElementById('trackQuery').value.trim().toUpperCase();
-  if (!q) { renderTrack(TICKETS); return; }
-  const found = TICKETS.filter(t => t.id.toUpperCase().includes(q) || (t.requester||'').toUpperCase().includes(q));
+  const dept = document.getElementById('trackDept').value;
+  const stage = document.getElementById('trackStage').value;
+  const openStages = ['S1_Received','S2_Reviewing','S3_Assigned','S4_Processing','S5_Sent'];
+
+  let found = TICKETS.slice();
+  if (q) found = found.filter(t => t.id.toUpperCase().includes(q) || (t.requester||'').toUpperCase().includes(q));
+  if (dept) found = found.filter(t => t.dept === dept);
+  if (stage === '__OPEN__') found = found.filter(t => openStages.indexOf(t.stage) >= 0);
+  else if (stage) found = found.filter(t => t.stage === stage);
+
+  // sort by created desc (string sort on Thai date works ok here in mock; backend ใช้ Date)
+  found.sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+
+  const summary = document.getElementById('trackSummary');
+  const filters = [
+    q && 'คำค้น "' + q + '"',
+    dept && 'แผนก ' + dept,
+    stage === '__OPEN__' ? 'เปิดอยู่ทั้งหมด' : stage ? 'สถานะ ' + stage : ''
+  ].filter(Boolean).join(' · ');
+  if (filters || q || dept || stage) {
+    summary.classList.remove('hidden');
+    summary.textContent = 'ผลลัพธ์: ' + found.length + ' รายการ' + (filters ? ' · ' + filters : '');
+  } else {
+    summary.classList.add('hidden');
+  }
   renderTrack(found);
+}
+document.getElementById('btnTrack').addEventListener('click', runTrackSearch);
+document.getElementById('btnTrackReset').addEventListener('click', () => {
+  document.getElementById('trackQuery').value = '';
+  document.getElementById('trackDept').value = '';
+  document.getElementById('trackStage').value = '';
+  document.getElementById('trackSummary').classList.add('hidden');
+  renderTrack(TICKETS.slice(0,5));
 });
+document.getElementById('trackDept').addEventListener('change', runTrackSearch);
+document.getElementById('trackStage').addEventListener('change', runTrackSearch);
+document.getElementById('trackQuery').addEventListener('keydown', (e) => { if (e.key === 'Enter') runTrackSearch(); });
 
 // ===== Admin Dashboard =====
 function renderAdmin() {

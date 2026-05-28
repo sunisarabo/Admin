@@ -265,8 +265,13 @@ function submitTicket(payload) {
 
 // ============================================================================
 // LOOKUP TICKET (Track Status)
+// ----------------------------------------------------------------------------
+// query  : Ticket ID หรือ Email ผู้ร้อง (optional ถ้ามี filter)
+// filter : { deptCode, stage, openOnly } — ใช้ browse ตามแผนก/สถานะ
+// ทุกคน lookup ได้โดยไม่ต้อง login (เปิดให้แผนกอื่นๆ ตามงานข้ามแผนกได้)
 // ============================================================================
-function lookupTicket(query) {
+function lookupTicket(query, filter) {
+  filter = filter || {};
   const ss = openSS_();
   const sh = ss.getSheetByName(CFG.SH.TICKETS);
   if (!sh) return { ok: false, error: 'ยังไม่มี ticket ในระบบ / No tickets yet' };
@@ -275,19 +280,33 @@ function lookupTicket(query) {
 
   const headers = v[0];
   const q = String(query || '').trim().toUpperCase();
-  if (!q) return { ok: false, error: 'กรุณาใส่ Ticket ID หรือ Email' };
+  let rows = v.slice(1).filter(r => r[0]).map(r => rowToObject_(headers, r));
 
-  const matched = v.slice(1).filter(r => {
-    if (!r[0]) return false;
-    const id = String(r[0]).toUpperCase();
-    const email = String(r[2] || '').toUpperCase();
-    return id === q || email === q || id.indexOf(q) >= 0;
-  });
+  // ต้องมี query หรือ filter อย่างน้อย 1 อย่าง (กันคืน ticket ทั้งหมด)
+  const hasFilter = !!(filter.deptCode || filter.stage || filter.openOnly);
+  if (!q && !hasFilter) {
+    return { ok: false, error: 'กรุณาใส่ Ticket ID / Email หรือเลือกแผนก / สถานะ' };
+  }
 
-  if (!matched.length) return { ok: false, error: 'ไม่พบ ticket / Ticket not found' };
+  if (q) {
+    rows = rows.filter(r => {
+      const id = String(r.Ticket_ID).toUpperCase();
+      const email = String(r.Requester_Email || '').toUpperCase();
+      return id === q || email === q || id.indexOf(q) >= 0;
+    });
+  }
+  if (filter.deptCode) rows = rows.filter(r => r.Dept_Code === filter.deptCode);
+  if (filter.stage)    rows = rows.filter(r => r.Stage === filter.stage);
+  if (filter.openOnly) {
+    const openStages = ['S1_Received','S2_Reviewing','S3_Assigned','S4_Processing','S5_Sent'];
+    rows = rows.filter(r => openStages.indexOf(r.Stage) >= 0);
+  }
 
-  const tickets = matched.slice(0, 50).map(r => rowToObject_(headers, r));
-  return { ok: true, tickets: tickets };
+  if (!rows.length) return { ok: false, error: 'ไม่พบ ticket ตามเงื่อนไข / No matching tickets' };
+
+  // เรียงจากใหม่ไปเก่า, จำกัด 100 รายการ
+  rows.sort((a, b) => new Date(b.Created_At) - new Date(a.Created_At));
+  return { ok: true, tickets: rows.slice(0, 100), total: rows.length };
 }
 
 // ============================================================================
@@ -974,6 +993,66 @@ function postWebhook_(url, text) {
     method: 'post', contentType: 'application/json',
     payload: JSON.stringify({ text: text }), muteHttpExceptions: true
   });
+}
+
+// ============================================================================
+// TEST HELPERS — รันจาก Apps Script editor เพื่อทดสอบ email flow
+// ============================================================================
+/**
+ * ทดสอบ flow รับ-assign-notify email แบบครบวงจร
+ *   1. สร้าง test ticket ผ่าน submitTicket() (ใช้ session ของคนรัน)
+ *   2. assign ticket นั้นให้พนักงานคนแรกใน Staff Roster
+ *   3. คืน log การส่ง email + ticket ID เพื่อให้ผู้ทดสอบไปเปิด inbox ดู
+ *
+ * วิธีรัน: Apps Script editor → เลือกฟังก์ชัน testEmailFlow → Run
+ *   - ครั้งแรกจะขออนุญาต Gmail/Sheet — กด Allow
+ *   - ดูผลใน View → Logs และเปิด inbox hktadminpsa@ / hktadminll@
+ */
+function testEmailFlow() {
+  const me = Session.getActiveUser().getEmail();
+  Logger.log('=== testEmailFlow start (running as: ' + me + ') ===');
+
+  // 1) submit
+  const payload = {
+    catCode: 'FIN',
+    subCode: 'FIN-2.1',
+    priority: 'Urgent',
+    subject: '[TEST] ทดสอบ email flow — ' + new Date().toLocaleString('th-TH'),
+    detail: 'นี่คือ ticket ทดสอบที่สร้างโดย testEmailFlow() — สามารถลบทิ้งได้',
+    dynamicFields: { 'จำนวนเงิน (บาท)': 100 }
+  };
+  const submitRes = submitTicket(payload);
+  Logger.log('1) submitTicket → ' + JSON.stringify(submitRes));
+  if (!submitRes.ok) { Logger.log('STOP: submit failed'); return submitRes; }
+
+  // 2) assign ให้คนแรกใน Staff Roster
+  const ss = openSS_();
+  const staff = readSheet_(ss, CFG.SH.STAFF).filter(s => String(s.Active).toLowerCase()==='yes');
+  if (!staff.length) { Logger.log('STOP: no active staff'); return { ok: false, error: 'no staff' }; }
+  const target = staff[0];
+  Logger.log('2) assign to: ' + target.Nickname + ' (' + target.Emp_Code + ') → Email=' + target.Email + ' Alt=' + target.Email_Alt);
+  const assignRes = assignTicketToStaff(submitRes.ticketId, target.Emp_Code);
+  Logger.log('   assignTicketToStaff → ' + JSON.stringify(assignRes));
+
+  Logger.log('=== testEmailFlow done ===');
+  Logger.log('Expected emails:');
+  Logger.log('  • Ack to requester (' + me + ')');
+  Logger.log('  • Assignment notification To: ' + target.Email + ' CC: ' + (target.Email_Alt || '(none)'));
+  Logger.log('เปิด inbox ของอีเมลข้างบนเพื่อยืนยันว่าได้รับจริง');
+  return { ok: true, ticketId: submitRes.ticketId, assignedTo: assignRes.assignedTo };
+}
+
+/**
+ * ทดสอบ identity lookup — ดูว่า email ที่ระบุ map ไป staff คนไหนใน roster
+ */
+function testIdentityLookup(email) {
+  email = email || Session.getActiveUser().getEmail();
+  const ss = openSS_();
+  const profile = getCurrentUserProfile_(ss, email);
+  Logger.log('Email: ' + email);
+  Logger.log('Matches: ' + profile.matches.length);
+  profile.matches.forEach(m => Logger.log('  • ' + m.Nickname + ' — ' + m.First_TH + ' ' + m.Last_TH + ' (' + m.Emp_Code + ') ' + m.Dept_Code));
+  return profile;
 }
 
 // ============================================================================
