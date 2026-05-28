@@ -593,8 +593,9 @@ function initSystem() {
   const ss = openSS_();
   if (!ss.getSheetByName(CFG.SH.TICKETS)) createTicketsSheet_(ss);
   if (!ss.getSheetByName(CFG.SH.AUDIT))   createAuditSheet_(ss);
-  if (!ss.getSheetByName(CFG.SH.STAFF))   createStaffSheet_(ss);
-  Logger.log('✓ Init complete. Sheets ready (Tickets / AuditLog / Staff_Roster).');
+  // seed master sheets 01-13 (รวม 09_Staff_Roster) — idempotent
+  seedAllMasterSheets();
+  Logger.log('✓ Init complete. Sheets ready (Tickets / AuditLog + master 01-13).');
   Logger.log('Web App URL: เปิดได้หลัง Deploy → New deployment');
 }
 
