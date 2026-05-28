@@ -18,7 +18,7 @@ const CFG = {
   APP_NAME: 'Service Request Ticketing',
   APP_NAME_TH: 'ระบบคำร้องส่วนกลาง',
   TIME_ZONE: 'Asia/Bangkok',
-  WEB_APP_URL: '',  // ใส่ URL หลัง Deploy → ใช้ใน Email reply ของ EmailIntake
+  WEB_APP_URL: 'https://script.google.com/macros/s/AKfycbyQg-YYXm-zmVg39sel7FwtevjrlhOBog4WiYzuvsdvay7OMtQq85sDnbCN14nYBVI/exec',
 
   WEBHOOKS: {
     WEBHOOK_HR: '', WEBHOOK_FIN: '', WEBHOOK_PRC: '',
