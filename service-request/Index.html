@@ -158,10 +158,11 @@
       <h1 class="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
       <p class="text-sm text-slate-600 mt-1">จัดการคำร้องทั้งหมด · มอบหมายงาน · ติดตามขั้นตอน · ตรวจ checklist</p>
     </div>
-    <div class="flex gap-2">
-      <button class="btn btn-secondary" id="btnViewMine"><i data-lucide="user-check" class="w-4 h-4"></i> งานของฉัน</button>
-      <button class="btn btn-secondary" id="btnViewAll"><i data-lucide="layers" class="w-4 h-4"></i> งานทั้งหมด</button>
-      <button class="btn btn-primary"><i data-lucide="download" class="w-4 h-4"></i> Export</button>
+    <div class="flex gap-2 flex-wrap">
+      <button class="btn btn-primary" id="btnAddTicket"><i data-lucide="plus" class="w-4 h-4"></i> เพิ่ม Ticket</button>
+      <button class="btn btn-secondary" id="btnTestEmail"><i data-lucide="mail-check" class="w-4 h-4"></i> ทดสอบ Email</button>
+      <button class="btn btn-secondary" id="btnOpenSheet"><i data-lucide="sheet" class="w-4 h-4"></i> เปิด Sheet</button>
+      <button class="btn btn-secondary" id="btnRefreshAdmin"><i data-lucide="refresh-cw" class="w-4 h-4"></i> รีเฟรช</button>
     </div>
   </div>
 
@@ -336,6 +337,77 @@
   </div>
 </div>
 
+<!-- ========== ADD TICKET MODAL ========== -->
+<div id="addModalOverlay" class="modal hidden">
+  <div class="modal-content">
+    <div class="navy-bg text-white px-6 py-4 flex items-center justify-between">
+      <div>
+        <div class="text-xs text-slate-300">Admin · Manual Entry</div>
+        <h2 class="text-lg font-semibold mt-1">เพิ่ม Ticket ใหม่ <span class="text-sm font-normal text-slate-300">Add New Ticket</span></h2>
+      </div>
+      <button id="btnCloseAddModal" class="text-white/70 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+    <div class="flex-1 overflow-y-auto scrollbar p-6 space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="label">ชื่อผู้ส่งคำร้อง <span class="req">*</span></label>
+          <input type="text" class="input" id="add_reqName" placeholder="เช่น สมชาย ใจดี">
+        </div>
+        <div>
+          <label class="label">อีเมลผู้ส่ง<span class="label-en">Optional</span></label>
+          <input type="email" class="input" id="add_reqEmail" placeholder="user@aotga.com">
+        </div>
+        <div>
+          <label class="label">แผนกผู้ส่ง <span class="req">*</span></label>
+          <select class="input" id="add_dept">
+            <option value="">— เลือก —</option>
+            <option value="KP">KP — Passenger Services</option>
+            <option value="LP">LP — Special Services</option>
+            <option value="LL">LL — Baggage Services</option>
+          </select>
+        </div>
+        <div>
+          <label class="label">Priority <span class="req">*</span></label>
+          <select class="input" id="add_prio">
+            <option value="Normal">Normal — ปกติ (3 วัน)</option>
+            <option value="Urgent">Urgent — เร่งด่วน (24 ชม.)</option>
+            <option value="Critical">Critical — ฉุกเฉิน (1-2 ชม.)</option>
+          </select>
+        </div>
+        <div>
+          <label class="label">หมวด <span class="req">*</span></label>
+          <select class="input" id="add_cat"></select>
+        </div>
+        <div>
+          <label class="label">หมวดย่อย <span class="req">*</span></label>
+          <select class="input" id="add_sub"><option value="">— เลือก —</option></select>
+        </div>
+      </div>
+      <div>
+        <label class="label">หัวเรื่อง <span class="req">*</span></label>
+        <input type="text" class="input" id="add_subject" placeholder="สรุปคำร้อง 1 บรรทัด">
+      </div>
+      <div>
+        <label class="label">รายละเอียด <span class="req">*</span></label>
+        <textarea class="input" rows="4" id="add_detail" placeholder="อธิบายเหตุการณ์ ใคร เมื่อไหร่ ที่ไหน ต้องการให้ทำอะไร"></textarea>
+      </div>
+      <div>
+        <label class="label">มอบหมายให้ (Optional)<span class="label-en">Assign to staff</span></label>
+        <select class="input" id="add_assignTo">
+          <option value="">— ไม่มอบหมาย (เข้า S1_Received) —</option>
+        </select>
+      </div>
+    </div>
+    <div class="border-t border-slate-200 px-6 py-3 flex items-center justify-between bg-slate-50">
+      <div class="text-xs text-slate-500">Ticket จะถูกบันทึกลง Tickets sheet</div>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary" id="btnCancelAdd">ยกเลิก</button>
+        <button class="btn btn-primary" id="btnSubmitAdd"><i data-lucide="send" class="w-4 h-4"></i> สร้าง Ticket</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden">
   <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-500"></i>
   <div>
@@ -348,9 +420,10 @@
 <script>
 // ===== STAFF ROSTER (seed; in production มาจาก backend getMasterData().currentUser) =====
 // 2-way shared inbox: login ด้วย email หรือ email_alt ก็ได้, notification เด้งทั้ง 2 inbox
+// ลำดับ: ไอซ์ (Supervisor) → นัตตี้ (Senior) → แม็ค → ฟลุ๊ค → บีม → ออย
 const STAFF_ROSTER = [
-  { emp:'2100935', title:'นางสาว', first:'พัชรินทร์',  last:'กริชสั้น',     dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Senior Administrative Officer', nick:'นัตตี้', email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
   { emp:'2202011', title:'นางสาว', first:'สุนิศรา',    last:'บุญยัง',       dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Supervisor',     nick:'ไอซ์',   email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
+  { emp:'2100935', title:'นางสาว', first:'พัชรินทร์',  last:'กริชสั้น',     dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Senior Administrative Officer', nick:'นัตตี้', email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
   { emp:'2506243', title:'นาย',    first:'พุฒิพงษ์',  last:'ทิพย์เขต',     dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Officer',        nick:'แม็ค',   email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
   { emp:'2506762', title:'นางสาว', first:'กาญจนาพร',  last:'เภรินทวงค์',   dept_th:'การโดยสาร ภูเก็ต',     dept:'KP', pos:'Administrative Officer',        nick:'ฟลุ๊ค',  email:'hktadminpsa@aotga.com', email_alt:'hktadminll@aotga.com' },
   { emp:'2302860', title:'นางสาว', first:'ศิโรรัตน์',  last:'สุวรรณรัตน์',  dept_th:'ติดตามสัมภาระ ภูเก็ต', dept:'LL', pos:'Administrative Officer',        nick:'บีม',    email:'hktadminll@aotga.com',  email_alt:'hktadminpsa@aotga.com' },
@@ -608,7 +681,7 @@ function renderAdmin() {
           <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center">${s.nick.slice(0,1)}</div>
           <div>
             <div class="text-sm font-medium">${s.nick} <span class="text-slate-500 font-normal">— ${s.first} ${s.last}</span></div>
-            <div class="text-xs text-slate-500">${s.pos} · ${s.dept} · ${s.emp}</div>
+            <div class="text-xs text-slate-500">${s.pos} · ${s.emp}</div>
           </div>
         </div>
         <div class="text-sm font-semibold">${load} <span class="text-xs text-slate-500">/ ${MAX_LOAD}</span></div>
@@ -760,6 +833,143 @@ function toast(title, body, error) {
 }
 
 let lang = 'TH';
+
+// ===== Server bridge — เรียก backend ถ้าอยู่ใน Apps Script context, else mock =====
+const IS_APPS_SCRIPT = typeof google !== 'undefined' && !!google.script && !!google.script.run;
+function callServer(fn, ...args) {
+  return new Promise((resolve, reject) => {
+    if (!IS_APPS_SCRIPT) {
+      console.log('[mock]', fn, args);
+      resolve({ ok: true, mock: true, ticketId: 'MOCK-' + Date.now().toString(36).toUpperCase() });
+      return;
+    }
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args);
+  });
+}
+
+// ===== Add Ticket modal =====
+function openAddTicketModal() {
+  // populate categories
+  const cat = document.getElementById('add_cat');
+  cat.innerHTML = '<option value="">— เลือก —</option>' + CATEGORIES.map(c => `<option value="${c.code}">${c.code} — ${c.name_th}</option>`).join('');
+  // populate sub-categories
+  const sub = document.getElementById('add_sub');
+  sub.innerHTML = '<option value="">— เลือก —</option>';
+  cat.onchange = () => {
+    const subs = SUBS_BY_CAT[cat.value] || [];
+    sub.innerHTML = '<option value="">— เลือก —</option>' + subs.map(s => `<option value="${s.code}">${s.code} — ${s.name}</option>`).join('');
+  };
+  // populate assign-to staff
+  const assign = document.getElementById('add_assignTo');
+  assign.innerHTML = '<option value="">— ไม่มอบหมาย (เข้า S1_Received) —</option>' + STAFF_ROSTER.map(s =>
+    `<option value="${s.emp}">${s.nick} — ${s.first} ${s.last} (${s.pos})</option>`
+  ).join('');
+  // reset
+  ['add_reqName','add_reqEmail','add_subject','add_detail'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('add_dept').value = '';
+  document.getElementById('add_prio').value = 'Normal';
+  document.getElementById('addModalOverlay').classList.remove('hidden');
+  lucide.createIcons();
+}
+function closeAddTicketModal() { document.getElementById('addModalOverlay').classList.add('hidden'); }
+
+document.getElementById('btnAddTicket').addEventListener('click', openAddTicketModal);
+document.getElementById('btnCloseAddModal').addEventListener('click', closeAddTicketModal);
+document.getElementById('btnCancelAdd').addEventListener('click', closeAddTicketModal);
+document.getElementById('addModalOverlay').addEventListener('click', (e) => { if (e.target.id === 'addModalOverlay') closeAddTicketModal(); });
+
+document.getElementById('btnSubmitAdd').addEventListener('click', async () => {
+  const payload = {
+    requesterName: document.getElementById('add_reqName').value.trim(),
+    requesterEmail: document.getElementById('add_reqEmail').value.trim(),
+    deptCode: document.getElementById('add_dept').value,
+    priority: document.getElementById('add_prio').value,
+    catCode: document.getElementById('add_cat').value,
+    subCode: document.getElementById('add_sub').value,
+    subject: document.getElementById('add_subject').value.trim(),
+    detail: document.getElementById('add_detail').value.trim(),
+    assignToEmp: document.getElementById('add_assignTo').value
+  };
+  if (!payload.requesterName || !payload.deptCode || !payload.catCode || !payload.subCode || !payload.subject || !payload.detail) {
+    toast('กรอกข้อมูลให้ครบ', 'ช่องที่มี * ต้องกรอก', true);
+    return;
+  }
+  const btn = document.getElementById('btnSubmitAdd');
+  btn.disabled = true; btn.textContent = 'กำลังบันทึก...';
+  try {
+    const res = await callServer('submitTicketByAdmin', payload);
+    if (res && res.ok) {
+      toast('สร้าง Ticket สำเร็จ · ' + (res.ticketId || ''), res.mock ? 'Mockup mode — ไม่ได้บันทึกจริง' : 'บันทึกลง Sheet แล้ว · email แจ้งผู้รับเรียบร้อย');
+      closeAddTicketModal();
+      // mock mode: เพิ่มเข้า array
+      if (res.mock) {
+        const targetStaff = STAFF_ROSTER.find(s => s.emp === payload.assignToEmp);
+        TICKETS.unshift({
+          id: res.ticketId,
+          subject: payload.subject,
+          dept: payload.deptCode, cat: payload.catCode, sub: payload.subCode,
+          subName: (SUBS_BY_CAT[payload.catCode] || []).find(s => s.code === payload.subCode)?.name || payload.subCode,
+          prio: payload.priority,
+          stage: targetStaff ? 'S3_Assigned' : 'S1_Received',
+          assignedToEmp: payload.assignToEmp || null,
+          requester: payload.requesterName,
+          created: new Date().toLocaleString('th-TH', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }),
+          overdue: false
+        });
+        renderAdmin();
+      }
+    } else {
+      toast('สร้างไม่สำเร็จ', (res && res.error) || 'unknown error', true);
+    }
+  } catch (e) {
+    toast('Error', String(e), true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i> สร้าง Ticket';
+    lucide.createIcons();
+  }
+});
+
+// ===== Test Email button =====
+document.getElementById('btnTestEmail').addEventListener('click', async () => {
+  const btn = document.getElementById('btnTestEmail');
+  btn.disabled = true;
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4"></i> กำลังส่ง...';
+  try {
+    const res = await callServer('testEmailFlow');
+    if (res && res.ok) {
+      toast('ส่ง test email สำเร็จ', res.mock ? 'Mockup mode — ไม่ได้ส่งจริง' : 'Ticket ' + res.ticketId + ' → ' + res.assignedTo + '. เช็ค inbox hktadminpsa@ + hktadminll@');
+    } else {
+      toast('ส่งไม่สำเร็จ', (res && res.error) || 'unknown', true);
+    }
+  } catch (e) {
+    toast('Error', String(e), true);
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig; lucide.createIcons();
+  }
+});
+
+// ===== Open Spreadsheet =====
+document.getElementById('btnOpenSheet').addEventListener('click', async () => {
+  try {
+    const res = await callServer('getSpreadsheetUrl');
+    const url = (res && res.url) || res;
+    if (typeof url === 'string' && url.startsWith('http')) {
+      window.open(url, '_blank');
+    } else {
+      toast('Mockup mode', 'ใน production จะเปิด Tickets sheet ใน tab ใหม่');
+    }
+  } catch (e) {
+    toast('Error', String(e), true);
+  }
+});
+
+// ===== Refresh =====
+document.getElementById('btnRefreshAdmin').addEventListener('click', () => {
+  renderAdmin();
+  toast('รีเฟรชแล้ว', '');
+});
 
 // ===== Lang toggle (placeholder) =====
 document.getElementById('langToggle').addEventListener('click', () => {

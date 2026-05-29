@@ -61,9 +61,10 @@ const CFG = {
   // 2-way shared inbox: staff login ด้วย Email หรือ Email_Alt ก็ได้
   // ทีม KP → primary hktadminpsa, alt hktadminll  |  ทีม LL → primary hktadminll, alt hktadminpsa
   // notification เด้งทั้ง 2 inbox (To + CC)
+  // ลำดับ: ไอซ์ (Supervisor) → นัตตี้ (Senior) → แม็ค → ฟลุ๊ค → บีม → ออย
   STAFF_SEED: [
-    ['2100935', 'นางสาว', 'พัชรินทร์',  'กริชสั้น',      'การโดยสาร ภูเก็ต',     'KP', 'Senior Administrative Officer', 'นัตตี้', 'hktadminpsa@aotga.com', 'hktadminll@aotga.com', 'yes'],
     ['2202011', 'นางสาว', 'สุนิศรา',    'บุญยัง',        'การโดยสาร ภูเก็ต',     'KP', 'Administrative Supervisor',     'ไอซ์',   'hktadminpsa@aotga.com', 'hktadminll@aotga.com', 'yes'],
+    ['2100935', 'นางสาว', 'พัชรินทร์',  'กริชสั้น',      'การโดยสาร ภูเก็ต',     'KP', 'Senior Administrative Officer', 'นัตตี้', 'hktadminpsa@aotga.com', 'hktadminll@aotga.com', 'yes'],
     ['2506243', 'นาย',    'พุฒิพงษ์',  'ทิพย์เขต',      'การโดยสาร ภูเก็ต',     'KP', 'Administrative Officer',        'แม็ค',   'hktadminpsa@aotga.com', 'hktadminll@aotga.com', 'yes'],
     ['2506762', 'นางสาว', 'กาญจนาพร',  'เภรินทวงค์',    'การโดยสาร ภูเก็ต',     'KP', 'Administrative Officer',        'ฟลุ๊ค',  'hktadminpsa@aotga.com', 'hktadminll@aotga.com', 'yes'],
     ['2302860', 'นางสาว', 'ศิโรรัตน์',  'สุวรรณรัตน์',   'ติดตามสัมภาระ ภูเก็ต', 'LL', 'Administrative Officer',        'บีม',    'hktadminll@aotga.com',  'hktadminpsa@aotga.com', 'yes'],
@@ -993,6 +994,122 @@ function postWebhook_(url, text) {
     method: 'post', contentType: 'application/json',
     payload: JSON.stringify({ text: text }), muteHttpExceptions: true
   });
+}
+
+// ============================================================================
+// ADMIN: SUBMIT TICKET BY ADMIN (manual entry on behalf of someone)
+// ----------------------------------------------------------------------------
+// Admin สามารถสร้าง ticket ในนามคนอื่นได้ — ระบุ requesterName / Email / Dept
+// เองโดยไม่ต้องอยู่ใน Staff Roster
+// ตัวเลือก assignToEmp ระบุพนักงานที่จะ assign ทันที (skip auto-assign)
+// ============================================================================
+function submitTicketByAdmin(payload) {
+  const me = Session.getActiveUser().getEmail();
+  if (!isAdmin_(me)) return { ok: false, error: 'Unauthorized — admin only' };
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    const ss = openSS_();
+    let sh = ss.getSheetByName(CFG.SH.TICKETS);
+    if (!sh) sh = createTicketsSheet_(ss);
+
+    const required = ['requesterName', 'deptCode', 'catCode', 'subCode', 'priority', 'subject', 'detail'];
+    for (const k of required) {
+      if (!payload[k]) return { ok: false, error: 'ขาดข้อมูล / Missing field: ' + k };
+    }
+
+    const ticketId = generateTicketId_(payload.deptCode, payload.catCode);
+    const now = new Date();
+    const subName = lookupSubName_(ss, payload.subCode);
+
+    // optional: assign ทันทีถ้าระบุ assignToEmp
+    let assignee = null;
+    let stage = 'S1_Received';
+    let assignedToName = '';
+    let assignedToEmail = '';
+    let assignedAt = '';
+    if (payload.assignToEmp) {
+      const staff = readSheet_(ss, CFG.SH.STAFF).find(s => String(s.Emp_Code) === String(payload.assignToEmp));
+      if (staff) {
+        assignedToName = (staff.Nickname ? staff.Nickname + ' — ' : '') + staff.First_TH + ' ' + staff.Last_TH;
+        assignedToEmail = staff.Email;
+        assignedAt = now;
+        stage = 'S3_Assigned';
+        assignee = { name: staff.Nickname, email: staff.Email, email_alt: staff.Email_Alt, emp: staff.Emp_Code };
+      }
+    } else {
+      // auto-assign (ปกติ)
+      const auto = autoAssignAdmin_(ss, payload.catCode);
+      if (auto) {
+        assignedToName = auto.name;
+        assignedToEmail = auto.email;
+        assignedAt = now;
+      }
+    }
+
+    const stagesHistory = [{ stage: 'S1_Received', at: now.toISOString(), by: me, note: 'Created by admin: ' + me }];
+    if (stage === 'S3_Assigned') {
+      stagesHistory.push({ stage: 'S3_Assigned', at: now.toISOString(), by: me, note: 'Direct assign to ' + assignedToName });
+    }
+    const checklist = buildInitialChecklist_(ss, payload.catCode);
+
+    sh.appendRow([
+      ticketId, now, payload.requesterEmail || '', payload.requesterName,
+      '', '',  // Emp_Code, Nickname (requester ไม่อยู่ใน roster)
+      payload.deptCode, payload.catCode, payload.subCode, subName,
+      payload.priority, payload.subject, payload.detail,
+      JSON.stringify(payload.dynamicFields || {}),
+      (payload.attachmentLinks || []).join('\n'),
+      stage,
+      lookupOwnerTeam_(ss, payload.subCode),
+      assignedToEmail, assignedToName, assignedAt,
+      JSON.stringify(stagesHistory),
+      JSON.stringify(checklist),
+      '', now, '', ''
+    ]);
+
+    audit_(me, ticketId, 'CREATE_BY_ADMIN', 'Cat=' + payload.catCode + ' Sub=' + payload.subCode + ' Assign=' + (payload.assignToEmp || 'auto'));
+
+    // notifications
+    if (assignee && assignee.email) {
+      safeCall_(() => MailApp.sendEmail({
+        to: assignee.email,
+        cc: assignee.email_alt && assignee.email_alt !== assignee.email ? assignee.email_alt : '',
+        subject: '[Assigned · ' + assignee.name + '] ' + ticketId + ' — ' + payload.subject,
+        htmlBody: '<p>มี ticket ใหม่มอบหมายให้ <b>' + assignedToName + '</b></p>'
+          + '<ul>'
+          + '<li>Ticket: <b>' + ticketId + '</b></li>'
+          + '<li>แผนกผู้ส่ง: ' + payload.deptCode + '</li>'
+          + '<li>หมวด: ' + subName + '</li>'
+          + '<li>Priority: <b>' + payload.priority + '</b></li>'
+          + '<li>หัวเรื่อง: ' + payload.subject + '</li>'
+          + '<li>ผู้ส่ง: ' + payload.requesterName + '</li>'
+          + '<li>สร้างโดย Admin: ' + me + '</li>'
+          + '</ul>'
+      }));
+    }
+    if (payload.requesterEmail) {
+      safeCall_(() => sendAck_(payload, ticketId, subName));
+    }
+
+    return { ok: true, ticketId: ticketId, assignedTo: assignedToName || 'Unassigned' };
+  } catch (err) {
+    Logger.log('submitTicketByAdmin error: ' + err.stack);
+    return { ok: false, error: String(err) };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+// ============================================================================
+// HELPER: เปิด Spreadsheet URL จาก frontend
+// ============================================================================
+function getSpreadsheetUrl() {
+  try {
+    return { ok: true, url: SpreadsheetApp.openById(CFG.SPREADSHEET_ID).getUrl() };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 // ============================================================================
