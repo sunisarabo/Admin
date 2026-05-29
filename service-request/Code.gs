@@ -731,8 +731,55 @@ function seedStaffRoster() {
   return added;
 }
 
+/**
+ * เปิด Spreadsheet ตาม priority:
+ *   1. Script Property "SPREADSHEET_ID" (ตั้งได้ผ่าน setSpreadsheetId())
+ *   2. Active spreadsheet (กรณี script bound กับ Sheet)
+ *   3. CFG.SPREADSHEET_ID (hardcode fallback)
+ * → ไม่ต้องแก้โค้ดเวลาย้าย Sheet หรือ deploy ใหม่
+ */
 function openSS_() {
-  return SpreadsheetApp.openById(CFG.SPREADSHEET_ID);
+  const stored = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  if (stored) return SpreadsheetApp.openById(stored);
+
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) return active;
+
+  if (CFG.SPREADSHEET_ID && CFG.SPREADSHEET_ID !== 'PUT_YOUR_SHEET_ID_HERE') {
+    return SpreadsheetApp.openById(CFG.SPREADSHEET_ID);
+  }
+  throw new Error('SPREADSHEET_ID ยังไม่ตั้งค่า — รัน setSpreadsheetId("YOUR_SHEET_ID") หรือผูก script กับ Sheet ก่อน');
+}
+
+/**
+ * ตั้งค่า Sheet ID ของระบบ (ครั้งเดียว) — เก็บใน Script Properties
+ * ใช้: setSpreadsheetId('1Abc...XYZ')
+ */
+function setSpreadsheetId(id) {
+  if (!id || id === 'PUT_YOUR_SHEET_ID_HERE') return { ok: false, error: 'invalid id' };
+  // ตรวจว่า open ได้จริงก่อน save
+  try {
+    const ss = SpreadsheetApp.openById(id);
+    PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id);
+    Logger.log('✓ Saved SPREADSHEET_ID: ' + id + ' (' + ss.getName() + ')');
+    return { ok: true, id: id, name: ss.getName(), url: ss.getUrl() };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * ดูค่า SPREADSHEET_ID ปัจจุบัน
+ */
+function getSpreadsheetId() {
+  const stored = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  return {
+    stored: stored || '(not set)',
+    active: active ? active.getId() : '(no active spreadsheet)',
+    cfg: CFG.SPREADSHEET_ID,
+    resolved: stored || (active && active.getId()) || CFG.SPREADSHEET_ID
+  };
 }
 
 function readSheet_(ss, name) {
