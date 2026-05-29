@@ -160,7 +160,6 @@
     </div>
     <div class="flex gap-2 flex-wrap">
       <button class="btn btn-primary" id="btnAddTicket"><i data-lucide="plus" class="w-4 h-4"></i> เพิ่ม Ticket</button>
-      <button class="btn btn-secondary" id="btnTestEmail"><i data-lucide="mail-check" class="w-4 h-4"></i> ทดสอบ Email</button>
       <button class="btn btn-secondary" id="btnOpenSheet"><i data-lucide="sheet" class="w-4 h-4"></i> เปิด Sheet</button>
       <button class="btn btn-secondary" id="btnRefreshAdmin"><i data-lucide="refresh-cw" class="w-4 h-4"></i> รีเฟรช</button>
     </div>
@@ -927,26 +926,6 @@ document.getElementById('btnSubmitAdd').addEventListener('click', async () => {
     btn.disabled = false;
     btn.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i> สร้าง Ticket';
     lucide.createIcons();
-  }
-});
-
-// ===== Test Email button =====
-document.getElementById('btnTestEmail').addEventListener('click', async () => {
-  const btn = document.getElementById('btnTestEmail');
-  btn.disabled = true;
-  const orig = btn.innerHTML;
-  btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4"></i> กำลังส่ง...';
-  try {
-    const res = await callServer('testEmailFlow');
-    if (res && res.ok) {
-      toast('ส่ง test email สำเร็จ', res.mock ? 'Mockup mode — ไม่ได้ส่งจริง' : 'Ticket ' + res.ticketId + ' → ' + res.assignedTo + '. เช็ค inbox hktadminpsa@ + hktadminll@');
-    } else {
-      toast('ส่งไม่สำเร็จ', (res && res.error) || 'unknown', true);
-    }
-  } catch (e) {
-    toast('Error', String(e), true);
-  } finally {
-    btn.disabled = false; btn.innerHTML = orig; lucide.createIcons();
   }
 });
 
