@@ -27,12 +27,28 @@ jobs:
           node-version: 20
 
       - name: Install clasp
-        run: npm install -g @google/clasp
+        run: npm install -g @google/clasp@2.4.2
 
       - name: Restore clasp credentials
-        run: echo "$CLASPRC_JSON" > ~/.clasprc.json
+        run: |
+          echo "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
         env:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        working-directory: .
+
+      - name: Diagnose credentials (no secret leakage)
+        run: |
+          echo "clasp version: $(clasp --version 2>&1 || echo unknown)"
+          echo "HOME: $HOME"
+          echo "File exists: $([ -f "$HOME/.clasprc.json" ] && echo yes || echo NO)"
+          echo "File size (bytes): $(wc -c < "$HOME/.clasprc.json" 2>/dev/null || echo NA)"
+          FIRST=$(head -c 1 "$HOME/.clasprc.json" 2>/dev/null | od -An -c | tr -d ' ')
+          LAST=$(tail -c 1 "$HOME/.clasprc.json" 2>/dev/null | od -An -c | tr -d ' ')
+          echo "First char: '$FIRST'   (expected: '{')"
+          echo "Last char:  '$LAST'   (expected: '}' or '\\n')"
+          echo "Top-level JSON keys:"
+          node -e "try { const j=JSON.parse(require('fs').readFileSync(process.env.HOME+'/.clasprc.json','utf8')); console.log('  ✓ valid JSON, keys:', Object.keys(j).join(', ')); } catch(e) { console.log('  ✗ invalid JSON:', e.message.split('\\n')[0]); }"
         working-directory: .
 
       - name: clasp push (source → Apps Script HEAD)
