@@ -507,6 +507,17 @@ const CHECKLIST_S4_FIN = [
   { stage:'S6_Closed',    text:'บันทึก Resolution Note + Filing',     en:'Record resolution + filing', done:false }
 ];
 
+// ===== Page routing =====
+function showPage(p) {
+  ['track','admin'].forEach(x => {
+    const el = document.getElementById('page-' + x);
+    if (el) el.classList.toggle('hidden', x !== p);
+  });
+  document.querySelectorAll('.nav-link').forEach(n => n.classList.toggle('active', n.dataset.page === p));
+  if (p === 'admin') renderAdmin();
+}
+document.querySelectorAll('.nav-link').forEach(n => n.addEventListener('click', () => showPage(n.dataset.page)));
+
 // ===== Track page =====
 function renderTrack(rows) {
   const box = document.getElementById('trackResults');
