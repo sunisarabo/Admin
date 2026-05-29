@@ -13,7 +13,7 @@
  */
 
 const CFG = {
-  SPREADSHEET_ID: 'PUT_YOUR_SHEET_ID_HERE',  // ← แก้ก่อน deploy
+  SPREADSHEET_ID: '1YTaKzj52c57H1hUZSR9Uwzc6xmBCTxA1r2SbxZ6DxM4',
   ADMIN_EMAILS_FALLBACK: ['hktadminpsa@aotga.com'],
   APP_NAME: 'Service Request Ticketing',
   APP_NAME_TH: 'ระบบคำร้องส่วนกลาง',
