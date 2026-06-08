@@ -27,6 +27,7 @@ var CONFIG_RB = {
   OUTPUT_FOLDER_ID: '',                                     // โฟลเดอร์เก็บรายงาน — เว้นว่าง = เซฟลง My Drive
   LL_FILE_ID:       '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg', // ไฟล์ LL — เว้นว่าง = ข้าม LL
   CHAT_WEBHOOK_PROP: 'GCHAT_WEBHOOK_REPORT',               // Script Property holding the webhook URL
+  CHAT_ALERT_PROP:  'GCHAT_WEBHOOK_ALERT',                 // 2nd Script Property: conflict / OT-missing alerts
   SKIP_TIMETABLE_TEAMS: [],                                // teams to omit from the timetable tab
 };
 
@@ -119,6 +120,7 @@ function testRosterFromId(ssId, llId, y, m, d) {
   rbWriteTimetable_(out, res, roster.getName(), ll);
   rbWriteFlightSLA_(out, res, roster.getName(), ll);
   rbWriteSupport_(out, res, roster.getName(), ll);
+  rbWriteIssues_(out, res, ll, roster.getName());
   var cleanup = out.getSheetByName('Sheet1') || out.getSheetByName('ชีต1');
   if (cleanup && out.getSheets().length > 1) out.deleteSheet(cleanup);
   if (opened.tempId) { try { DriveApp.getFileById(opened.tempId).setTrashed(true); } catch (e) {} }
@@ -154,6 +156,9 @@ function rbRunForDate_(date) {
   rbWriteTimetable_(out, res, dateStr, ll, '🕓 ' + dd + ' ' + mon);
   rbWriteFlightSLA_(out, res, dateStr, ll, '✈️ ' + dd + ' ' + mon);
   rbWriteSupport_(out, res, dateStr, ll, '🆘 ' + dd + ' ' + mon);
+  // schedule validation (flight conflicts / OT missing) — non-fatal
+  try { rbWriteIssues_(out, res, ll, dateStr, '🚨 ' + dd + ' ' + mon); }
+  catch (e) { Logger.log('⚠️ Issues: ' + e.message); }
   // weekly OT (>36h) — reads the week's files; non-fatal if it can't finish
   try {
     var wr = rbWeekRange_(date);
@@ -165,6 +170,7 @@ function rbRunForDate_(date) {
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
 
   rbPostChat_(res, dateStr, out.getUrl(), ll, master);
+  try { rbPostAlerts_(res, ll, dateStr); } catch (e) { Logger.log('⚠️ Alerts: ' + e.message); }
   Logger.log('✅ Done: %s', out.getUrl());
 }
 

@@ -37,6 +37,7 @@ each bot just formats the result differently.
 | `MasterReader.gs` | shared | `readMasterHeadcount` (Bot A) + `readMaster_` full roster (Bot B). |
 | `SLA.gs` | Bot A | Airline SLA requirements + per-flight shortage check. |
 | `RosterBot.gs` | Bot A | Drive navigation, Dashboard/Timetable tabs, weekly OT, short Chat summary, triggers. |
+| `Validation.gs` | Bot A | Flight-conflict + OT-missing checks → `🚨 Issues` tab + alert webhook. |
 | `WebDashboard.gs` | Bot A | `doGet()` server-rendered live dashboard. |
 | `Reconcile.gs` | Bot B | MASTER reconciliation (absent staff = OFF) + MANPOWER/Crewsign overrides, on shared records. |
 | `LegacyReport.gs` | Bot B | Detailed monospaced Chat tables + A4 PDF + triggers. |
@@ -49,7 +50,8 @@ each bot just formats the result differently.
 | `RosterBot.gs` | `CONFIG_RB.LL_FILE_ID` | LL monthly file. Blank = skip LL. |
 | `RosterBot.gs` | `CONFIG_RB.OUTPUT_FOLDER_ID` | Where monthly report / PDF live. Blank = My Drive. |
 | `MasterReader.gs` | `MASTER_FILE_ID_RB` | Pax Manpower MASTER. **Required for Bot B** OFF counting. |
-| Script Property | `GCHAT_WEBHOOK_REPORT` | Google Chat webhook URL (secret — not in source). |
+| Script Property | `GCHAT_WEBHOOK_REPORT` | Google Chat webhook URL — daily report (secret — not in source). |
+| Script Property | `GCHAT_WEBHOOK_ALERT` | Google Chat webhook URL — flight-conflict / OT-missing alerts (optional, separate room). |
 
 Set the webhook once: Project Settings → Script Properties → add
 `GCHAT_WEBHOOK_REPORT`, **or** run `setupChatWebhook()` after pasting the URL in
