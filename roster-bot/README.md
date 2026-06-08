@@ -42,6 +42,15 @@ each bot just formats the result differently.
 | `Reconcile.gs` | Bot B | MASTER reconciliation (absent staff = OFF) + MANPOWER/Crewsign overrides, on shared records. |
 | `LegacyReport.gs` | Bot B | Detailed monospaced Chat tables + A4 PDF + triggers. |
 
+## Single-file build
+
+`single-file/SmartShiftRosterBot.gs` is the entire project concatenated into one
+`.gs` — paste it into a single Apps Script file if you prefer one file over the
+split layout. Use `single-file/appsscript.json` alongside it.
+
+> ⚠️ Use **either** the single file **or** the split `.gs` files — never both in
+> the same Apps Script project (the functions would be defined twice).
+
 ## Configuration (constants, not a BotConfig sheet)
 
 | Where | Constant | Meaning |
