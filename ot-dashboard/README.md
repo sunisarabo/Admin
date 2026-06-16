@@ -6,12 +6,12 @@ Overtime dashboard for HKT (การโดยสาร + ติดตามส�
 | File | Purpose |
 |------|---------|
 | `Code.gs` | Apps Script backend (REV 2). Live-fetches LL, PSA OT, and Flight Feed from Google Sheets. Deploy as a Web App; `doGet` serves `Index.html`. |
-| `may-2026-data.js` | **May 2026 data** — verified drop-in blocks for `PSA_DATA` and `LL_DATA` in `Index.html`. |
-| `Index.html` | Front-end (served by `Code.gs`). The hardcoded `PSA_DATA` / `LL_DATA` are the offline baseline; the live fetch overrides them at runtime. |
+| `Index.html` | Full front-end (served by `Code.gs`). **May 2026 is already applied** in `PSA_DATA` + `LL_DATA`. The hardcoded data is the offline baseline; the live fetch overrides it at runtime. Copy-paste / deploy as-is. |
+| `may-2026-data.js` | Standalone reference of the May 2026 blocks (same values as in `Index.html`), in case you maintain the file elsewhere. |
 
-## Adding May 2026 (or any new month)
+## Adding a future month
 
-May 2026 is provided in `may-2026-data.js`. To apply it to `Index.html`:
+For May 2026 nothing to do — it's already in `Index.html`. To add a later month, edit the two objects in `Index.html` the same way (or use `may-2026-data.js` as the shape reference):
 
 1. **PSA** — replace the whole `"May 2026": { … }` entry inside the `PSA_DATA = {…}` object with `PSA_MAY_2026`.
 2. **LL** — replace the whole `"May 2026": { … }` entry inside the `LL_DATA = {…}` object with `LL_MAY_2026`.
