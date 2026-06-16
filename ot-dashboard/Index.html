@@ -1680,10 +1680,14 @@ function loadOverrides(){
     const c=localStorage.getItem('ot_dashboard_ll_last');
     if(c){
       const o=JSON.parse(c);
-      if(o.data&&o.list&&Object.keys(o.data).length>HARDCODED_LL_MONTHS){
-        LL_DATA=o.data;LL_MONTH_LIST=o.list;
+      // Merge cached months over the hardcoded baseline instead of replacing it.
+      // A stale cache (e.g. one saved before May was filled in) can no longer
+      // wipe out a curated month — applyLiveLL only overrides months that
+      // actually carry data, so the baseline stays as the floor.
+      if(o.data&&typeof o.data==='object'){
+        applyLiveLL(o.data);
         if(o.at)document.getElementById('lastUpdate').textContent='cache: '+new Date(o.at).toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'});
-      }else if(c){
+      }else{
         localStorage.removeItem('ot_dashboard_ll_last');
       }
     }
