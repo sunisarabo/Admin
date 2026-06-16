@@ -52,11 +52,11 @@ const PSA_MAY_2026 = {
   }
 };
 
-/* LL May = weekly category totals (W1–W4) + monthly code breakdown (A1–A8).
-   Weekly LL/Porter/Admin drive the Weekly OT chart; the monthly `codes` block
-   powers the Code-breakdown chart. No weekly A7 was supplied, so the weekly
-   chart shows Regular OT only (no red Holiday split). Weekly sums reconcile:
-     LL 1202:30 · Porter 525:00 · Admin 2:00 · Total 1729:30. */
+/* LL May = full weekly breakdown (W1–W4) with per-week code split (A1–A8),
+   same shape as Oct–Apr. Weekly LL/Porter/Admin drive the Weekly OT chart and
+   the per-week A7 draws the red Holiday bar (all 511:00 falls in W1 — Labour
+   Day, 1 May). Reconciles to the month: LL 1202:30 · Porter 525:00 ·
+   Admin 2:00 · Total 1729:30 (A7 511:00). */
 const LL_MAY_2026 = {
   "weeks": [
     {"week": "Week 01", "LL_min": 37020, "Porter_min": 14400, "Admin_min": 120, "Total_min": 51540},
@@ -65,13 +65,45 @@ const LL_MAY_2026 = {
     {"week": "Week 04", "LL_min": 9240,  "Porter_min": 5100,  "Admin_min": 0,   "Total_min": 14340}
   ],
   "codes": {
-    "A1": {"LL_min": 0,     "Porter_min": 0,     "Admin_min": 0},
-    "A2": {"LL_min": 49500, "Porter_min": 22320, "Admin_min": 120},
-    "A3": {"LL_min": 0,     "Porter_min": 0,     "Admin_min": 0},
-    "A4": {"LL_min": 0,     "Porter_min": 0,     "Admin_min": 0},
-    "A5": {"LL_min": 330,   "Porter_min": 720,   "Admin_min": 0},
-    "A6": {"LL_min": 120,   "Porter_min": 0,     "Admin_min": 0},
-    "A7": {"LL_min": 22200, "Porter_min": 8460,  "Admin_min": 0},
-    "A8": {"LL_min": 0,     "Porter_min": 0,     "Admin_min": 0}
+    "Week 01": {
+      "A1": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A2": {"LL_min": 14820, "Porter_min": 5940, "Admin_min": 120},
+      "A3": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A4": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A5": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A6": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A7": {"LL_min": 22200, "Porter_min": 8460, "Admin_min": 0},
+      "A8": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0}
+    },
+    "Week 02": {
+      "A1": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A2": {"LL_min": 11250, "Porter_min": 6360, "Admin_min": 0},
+      "A3": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A4": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A5": {"LL_min": 0,     "Porter_min": 600,  "Admin_min": 0},
+      "A6": {"LL_min": 120,   "Porter_min": 0,    "Admin_min": 0},
+      "A7": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A8": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0}
+    },
+    "Week 03": {
+      "A1": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A2": {"LL_min": 14190, "Porter_min": 4920, "Admin_min": 0},
+      "A3": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A4": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A5": {"LL_min": 330,   "Porter_min": 120,  "Admin_min": 0},
+      "A6": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A7": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0},
+      "A8": {"LL_min": 0,     "Porter_min": 0,    "Admin_min": 0}
+    },
+    "Week 04": {
+      "A1": {"LL_min": 0,    "Porter_min": 0,    "Admin_min": 0},
+      "A2": {"LL_min": 9240, "Porter_min": 5100, "Admin_min": 0},
+      "A3": {"LL_min": 0,    "Porter_min": 0,    "Admin_min": 0},
+      "A4": {"LL_min": 0,    "Porter_min": 0,    "Admin_min": 0},
+      "A5": {"LL_min": 0,    "Porter_min": 0,    "Admin_min": 0},
+      "A6": {"LL_min": 0,    "Porter_min": 0,    "Admin_min": 0},
+      "A7": {"LL_min": 0,    "Porter_min": 0,    "Admin_min": 0},
+      "A8": {"LL_min": 0,    "Porter_min": 0,    "Admin_min": 0}
+    }
   }
 };
