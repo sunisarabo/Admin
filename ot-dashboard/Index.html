@@ -607,6 +607,28 @@ function normalizeLLRecord(r){
   return r;
 }
 
+// Total minutes carried by an LL record (handles weekly + flat shapes).
+function llRecTotal(r){
+  if(!r||typeof r!=='object')return 0;
+  if(Array.isArray(r.weeks))return r.weeks.reduce((a,w)=>a+(w.LL_min||0)+(w.Porter_min||0)+(w.Admin_min||0),0);
+  return (r.LL_min||0)+(r.Porter_min||0)+(r.Admin_min||0);
+}
+
+// Merge a live LL payload over the offline baseline. Each live month is
+// normalized to the flat shape; only months that actually carry data override
+// the baseline. This is the key fix for "LL ไม่ขึ้น": a live source that hasn't
+// been filled in yet (empty/zero months) can no longer blank out a month that
+// has curated offline values like May 2026 — the offline numbers stay visible.
+function applyLiveLL(newLL){
+  if(!newLL||typeof newLL!=='object')return;
+  Object.keys(newLL).forEach(k=>{
+    if(k.startsWith('_'))return;
+    const r=normalizeLLRecord(newLL[k]);
+    if(llRecTotal(r)>0)LL_DATA[k]=r;
+  });
+  LL_MONTH_LIST=activeMonths(LL_DATA);
+}
+
 function activeMonths(data){
   const all=buildMonthList(data);
   return all.filter(k=>{
@@ -662,8 +684,7 @@ async function refreshLL(){
     if(!text)throw new Error('Drive ตอบกลับว่าง');
     if(text.length<200)throw new Error('ข้อมูลสั้นผิดปกติ ('+text.length+' chars)');
     stage='parse';
-    LL_DATA=parseLLSummary(text);
-    LL_MONTH_LIST=activeMonths(LL_DATA);
+    applyLiveLL(parseLLSummary(text));
     if(LL_MONTH_LIST.length===0)throw new Error('parser ทำงานแต่ไม่พบเดือนที่มีข้อมูล');
     window.LAST_LL_PARSE=LL_DATA;
     try{localStorage.setItem('ot_dashboard_ll_last',JSON.stringify({data:LL_DATA,list:LL_MONTH_LIST,at:Date.now()}));}catch(e){}
@@ -900,9 +921,7 @@ function parseLLFromTemplate(text){
     count++;
   }
   if(count>0){
-    Object.keys(LL_DATA).forEach(k=>delete LL_DATA[k]);
-    Object.keys(newLL).forEach(k=>{LL_DATA[k]=newLL[k];});
-    LL_MONTH_LIST=activeMonths(LL_DATA);
+    applyLiveLL(newLL);
     try{localStorage.setItem('ot_dashboard_ll_last',JSON.stringify({data:LL_DATA,list:LL_MONTH_LIST,at:Date.now()}));}catch(e){}
     document.getElementById('lastUpdate').textContent='อัปเดตล่าสุด: '+new Date().toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'})+' (template)';
   }
@@ -1679,9 +1698,7 @@ function applyServerData(srv){
     if(!srv||typeof srv!=='object')return;
     const summary=[];
     if(srv.LL && Object.keys(srv.LL).length>0 && !srv.LL._error){
-      Object.keys(LL_DATA).forEach(k=>delete LL_DATA[k]);
-      Object.keys(srv.LL).forEach(k=>{if(!k.startsWith('_'))LL_DATA[k]=normalizeLLRecord(srv.LL[k]);});
-      LL_MONTH_LIST = activeMonths(LL_DATA);
+      applyLiveLL(srv.LL);
       summary.push('LL '+Object.keys(LL_DATA).length+' เดือน');
     }
     window.LAST_FLIGHTS_RAW = srv.Flights;
