@@ -52,11 +52,18 @@ const PSA_MAY_2026 = {
   }
 };
 
-/* LL May = monthly totals by code only (no weekly split available).
-   Flat structure — llCatMonth / llTotalMonth / llCodeMonth / llCodeCatMonth
-   all already handle this shape. */
+/* LL May = weekly category totals (W1–W4) + monthly code breakdown (A1–A8).
+   Weekly LL/Porter/Admin drive the Weekly OT chart; the monthly `codes` block
+   powers the Code-breakdown chart. No weekly A7 was supplied, so the weekly
+   chart shows Regular OT only (no red Holiday split). Weekly sums reconcile:
+     LL 1202:30 · Porter 525:00 · Admin 2:00 · Total 1729:30. */
 const LL_MAY_2026 = {
-  "LL_min": 72150, "Porter_min": 31500, "Admin_min": 120, "Total_min": 103770,
+  "weeks": [
+    {"week": "Week 01", "LL_min": 37020, "Porter_min": 14400, "Admin_min": 120, "Total_min": 51540},
+    {"week": "Week 02", "LL_min": 11370, "Porter_min": 6960,  "Admin_min": 0,   "Total_min": 18330},
+    {"week": "Week 03", "LL_min": 14520, "Porter_min": 5040,  "Admin_min": 0,   "Total_min": 19560},
+    {"week": "Week 04", "LL_min": 9240,  "Porter_min": 5100,  "Admin_min": 0,   "Total_min": 14340}
+  ],
   "codes": {
     "A1": {"LL_min": 0,     "Porter_min": 0,     "Admin_min": 0},
     "A2": {"LL_min": 49500, "Porter_min": 22320, "Admin_min": 120},
