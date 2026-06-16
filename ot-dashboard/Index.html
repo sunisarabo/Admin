@@ -1458,7 +1458,12 @@ function renderLLMonth(mk){
     ? weekLabels.map((wl,i)=>r.weeks[i]?(r.weeks[i].LL_min||0)+(r.weeks[i].Porter_min||0)+(r.weeks[i].Admin_min||0):0)
     : [llTotalMonth(mk)];
   const weeklyA7=isWeekly
-    ? weekLabels.map(wl=>{
+    ? weekLabels.map((wl,i)=>{
+        // Per-week A7 holiday OT. Supports both shapes: a week-keyed code block
+        // codes["Week 01"].A7 (Oct–Apr), or an A7_min field on the week object
+        // (used when only weekly category totals + weekly A7 are supplied).
+        const wk=r.weeks[i];
+        if(wk && wk.A7_min!=null) return wk.A7_min;
         if(r.codes && r.codes[wl] && r.codes[wl].A7){
           const a=r.codes[wl].A7;
           return (a.LL_min||0)+(a.Porter_min||0)+(a.Admin_min||0);
