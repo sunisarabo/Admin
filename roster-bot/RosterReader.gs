@@ -450,7 +450,13 @@ function rrParseSheet_(ws) {
   var last = ws.getLastRow();
   if (last < 3) return null;
   var rows = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 60)).getValues();
-  if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) return rrParseCrewsign_(rows, name);
+  if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) {
+    // New "PORTER CREW SIGN" sheets use the standard ID/SHIFT layout; old ones
+    // are the STAFF NAME / SHIFT / REMARK grid. Prefer standard, fall back.
+    var cstd = rrParseStandard_(rows, name);
+    if (cstd && cstd.length) return cstd;
+    return rrParseCrewsign_(rows, name);
+  }
   if (n === 'PORTER') {
     // New PORTER sheets use the standard ID/REMARK layout; old ones are a
     // 2-column name list. Prefer standard; fall back to the 2-column parser.
