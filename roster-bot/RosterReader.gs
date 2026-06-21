@@ -149,17 +149,21 @@ function rrFindHeader_(rows) {
     cm.time   = u.indexOf('TIME');
     cm.pos    = u.indexOf('POSITION') >= 0 ? u.indexOf('POSITION') : u.indexOf('POS.');
     cm.remark = u.indexOf('REMARK');
+    if (cm.remark < 0) cm.remark = u.indexOf('STATUS');     // PVTLP: attendance lives in a STATUS column
+    if (cm.remark < 0) for (var rc = 0; rc < u.length; rc++) { if (u[rc].indexOf('REMARK') >= 0) { cm.remark = rc; break; } }
     cm.re     = u.indexOf('RE');
     cm.resked = u.indexOf('RE-SKED');
     if (cm.resked < 0) cm.resked = u.indexOf('RESKED');
     if (cm.resked < 0) cm.resked = u.indexOf('RE-SKED.');
     cm.ot     = u.indexOf('OT');
+    if (cm.ot < 0) for (var oc = 0; oc < u.length; oc++) { if (u[oc].indexOf('OT') === 0) { cm.ot = oc; break; } } // 'OT หน้า' (PORTER CREW SIGN)
     cm.ottot  = -1;
     for (var c = 0; c < u.length; c++) {
       var h = u[c].replace(/\./g, '').replace(/\s+/g, ' ').trim();
       if (h.indexOf('TOTAL') === 0 && cm.ot >= 0 && (c - cm.ot) > 0 && (c - cm.ot) <= 3) cm.ottot = c;
     }
     cm.flt = u.indexOf('FLIGHT') >= 0 ? u.indexOf('FLIGHT') + 1 : -1;
+    if (cm.flt < 0) for (var fc = 0; fc < u.length; fc++) { if (u[fc].indexOf('FLIGHT') >= 0) { cm.flt = fc + 1; break; } } // ':: FLIGHT ::' (KE)
     return cm;
   }
   return null;

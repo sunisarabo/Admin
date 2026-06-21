@@ -27,7 +27,12 @@ function rrLLPosGroup_(pos) {
   return 'PSA';
 }
 
-function rrLLClassify_(sched, remark) {
+function rrLLClassify_(sched, resked, remark) {
+  // RESKED may carry a status (SICK / VAC / OFF) that overrides the schedule.
+  var rs = rrUp_(resked).trim();
+  if (rs === 'SICK' || rs === 'SL' || rs === 'MC') return 'sick';
+  if (rs === 'VAC' || rs === 'BL' || rs === 'AL') return 'vac';
+  if (rs === 'OFF' || rs === 'X' || rs === 'XX') return 'off';
   var s = rrUp_(sched).trim();
   var rm = rrUp_(remark);
   if (s === 'SL' || s === 'SICK' || s === 'MC' || rm.indexOf('SICK') >= 0) return 'sick';
@@ -62,7 +67,7 @@ function readLLFromTab(ss, tabName) {
     var rec = {
       section: section, name: name, pos: pos, posGroup: rrLLPosGroup_(pos), team: section,
       shift: resked || sched, shiftTime: rrFmtRange_(srng) || (resked || sched), shiftStart: srng[0],
-      bucket: rrLLClassify_(sched, remark),
+      bucket: rrLLClassify_(sched, resked, remark),
       ot: oth, otType: oth > 0 ? rrOtType_(srng, orng, false) : null, otTime: oth > 0 ? rrFmtRange_(orng) : '',
       assignments: [],
     };
