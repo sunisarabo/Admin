@@ -42,6 +42,26 @@ each bot just formats the result differently.
 | `Reconcile.gs` | Bot B | MASTER reconciliation (absent staff = OFF) + MANPOWER/Crewsign overrides, on shared records. |
 | `LegacyReport.gs` | Bot B | Detailed monospaced Chat tables + A4 PDF + triggers. |
 
+## Auto-sync to Apps Script (clasp + GitHub Action)
+
+Pushes to `main` that touch `roster-bot/**` are synced to the Apps Script project
+by `.github/workflows/clasp-sync.yml` (job `sync-roster`), using the same
+`CLASPRC_JSON` secret as `service-request`.
+
+One-time setup:
+1. Open your roster-bot Apps Script project → **Project Settings (⚙️) → IDs →
+   Script ID**, copy it.
+2. Paste it into `roster-bot/.clasp.json` (replace `PUT_YOUR_ROSTER_BOT_SCRIPT_ID_HERE`).
+3. Commit. From then on, merging roster-bot changes to `main` auto-pushes them.
+
+Notes:
+- The action runs on **push to `main`** — so changes on a feature branch/PR only
+  sync after merge. To sync a branch before merging, use GitHub → **Actions →
+  "Sync to Apps Script" → Run workflow** and pick your branch (`workflow_dispatch`).
+- `.claspignore` makes clasp push **only the split `.gs` + `appsscript.json`** —
+  the `single-file/` build is excluded (pushing both would define every function
+  twice and break the project).
+
 ## Single-file build
 
 `single-file/SmartShiftRosterBot.gs` is the entire project concatenated into one
