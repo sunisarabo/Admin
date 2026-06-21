@@ -1316,9 +1316,8 @@ function rbBuildAlert_(v, dateStr) {
 
 /** Post conflicts/OT issues to the ALERT webhook (separate room). */
 function rbPostAlerts_(res, ll, dateStr) {
-  var prop = CONFIG_RB.CHAT_ALERT_PROP;
-  var webhook = prop ? PropertiesService.getScriptProperties().getProperty(prop) : '';
-  if (!webhook) { Logger.log('ℹ️ alert webhook (%s) ยังไม่ตั้ง → ข้าม', prop); return; }
+  var webhook = rbResolveWebhook_(CONFIG_RB.CHAT_ALERT_PROP);
+  if (!webhook) { Logger.log('ℹ️ alert webhook (%s) ยังไม่ตั้ง → ข้าม', CONFIG_RB.CHAT_ALERT_PROP); return; }
   var msg = rbBuildAlert_(valRun_(res, ll), dateStr);
   if (!msg) { Logger.log('✅ ไม่มี issue → ไม่ส่ง alert'); return; }
   UrlFetchApp.fetch(webhook, {
@@ -1832,8 +1831,20 @@ function runWeeklyOTReport(y, m, d) {
 }
 
 // ─── GOOGLE CHAT ────────────────────────────────────────────────────────────
+/**
+ * Resolve a webhook: if the config value is already a URL ("http...") use it
+ * directly, otherwise read it from the Script Property of that name. This lets
+ * CONFIG_RB.CHAT_*_PROP hold EITHER a property key (recommended — keeps the
+ * secret out of source) OR a raw URL.
+ */
+function rbResolveWebhook_(propOrUrl) {
+  var v = String(propOrUrl || '');
+  if (v.indexOf('http') === 0) return v;
+  return PropertiesService.getScriptProperties().getProperty(v) || '';
+}
+
 function rbPostChat_(res, dateStr, url, ll, master) {
-  var webhook = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP);
+  var webhook = rbResolveWebhook_(CONFIG_RB.CHAT_WEBHOOK_PROP);
   if (!webhook) { Logger.log('⚠️ no webhook set in property %s', CONFIG_RB.CHAT_WEBHOOK_PROP); return; }
   var T = res.totals;
   var now = new Date();
@@ -3105,8 +3116,8 @@ function legacyRunForDate_(date) {
 
   // Chat
   var dateThai = formatThaiDate_(date);
-  var webhook = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP);
-  if (!webhook) { Logger.log('⚠️ Legacy: ไม่มี webhook ใน Script Property %s', CONFIG_RB.CHAT_WEBHOOK_PROP); return; }
+  var webhook = rbResolveWebhook_(CONFIG_RB.CHAT_WEBHOOK_PROP);
+  if (!webhook) { Logger.log('⚠️ Legacy: ไม่มี webhook — ตั้ง Script Property %s (หรือใส่ URL ใน CONFIG_RB.CHAT_WEBHOOK_PROP)', CONFIG_RB.CHAT_WEBHOOK_PROP); return; }
   var msg = formatChatMessage_(master, psa, ll, dateThai, slotLabel, timeStr, pdfUrl);
   postToChat_(webhook, msg);
   Logger.log('✅ Legacy report sent');

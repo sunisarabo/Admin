@@ -107,8 +107,8 @@ function legacyRunForDate_(date) {
 
   // Chat
   var dateThai = formatThaiDate_(date);
-  var webhook = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP);
-  if (!webhook) { Logger.log('⚠️ Legacy: ไม่มี webhook ใน Script Property %s', CONFIG_RB.CHAT_WEBHOOK_PROP); return; }
+  var webhook = rbResolveWebhook_(CONFIG_RB.CHAT_WEBHOOK_PROP);
+  if (!webhook) { Logger.log('⚠️ Legacy: ไม่มี webhook — ตั้ง Script Property %s (หรือใส่ URL ใน CONFIG_RB.CHAT_WEBHOOK_PROP)', CONFIG_RB.CHAT_WEBHOOK_PROP); return; }
   var msg = formatChatMessage_(master, psa, ll, dateThai, slotLabel, timeStr, pdfUrl);
   postToChat_(webhook, msg);
   Logger.log('✅ Legacy report sent');

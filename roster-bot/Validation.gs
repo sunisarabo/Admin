@@ -134,9 +134,8 @@ function rbBuildAlert_(v, dateStr) {
 
 /** Post conflicts/OT issues to the ALERT webhook (separate room). */
 function rbPostAlerts_(res, ll, dateStr) {
-  var prop = CONFIG_RB.CHAT_ALERT_PROP;
-  var webhook = prop ? PropertiesService.getScriptProperties().getProperty(prop) : '';
-  if (!webhook) { Logger.log('ℹ️ alert webhook (%s) ยังไม่ตั้ง → ข้าม', prop); return; }
+  var webhook = rbResolveWebhook_(CONFIG_RB.CHAT_ALERT_PROP);
+  if (!webhook) { Logger.log('ℹ️ alert webhook (%s) ยังไม่ตั้ง → ข้าม', CONFIG_RB.CHAT_ALERT_PROP); return; }
   var msg = rbBuildAlert_(valRun_(res, ll), dateStr);
   if (!msg) { Logger.log('✅ ไม่มี issue → ไม่ส่ง alert'); return; }
   UrlFetchApp.fetch(webhook, {

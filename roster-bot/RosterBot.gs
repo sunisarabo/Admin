@@ -497,8 +497,20 @@ function runWeeklyOTReport(y, m, d) {
 }
 
 // ─── GOOGLE CHAT ────────────────────────────────────────────────────────────
+/**
+ * Resolve a webhook: if the config value is already a URL ("http...") use it
+ * directly, otherwise read it from the Script Property of that name. This lets
+ * CONFIG_RB.CHAT_*_PROP hold EITHER a property key (recommended — keeps the
+ * secret out of source) OR a raw URL.
+ */
+function rbResolveWebhook_(propOrUrl) {
+  var v = String(propOrUrl || '');
+  if (v.indexOf('http') === 0) return v;
+  return PropertiesService.getScriptProperties().getProperty(v) || '';
+}
+
 function rbPostChat_(res, dateStr, url, ll, master) {
-  var webhook = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP);
+  var webhook = rbResolveWebhook_(CONFIG_RB.CHAT_WEBHOOK_PROP);
   if (!webhook) { Logger.log('⚠️ no webhook set in property %s', CONFIG_RB.CHAT_WEBHOOK_PROP); return; }
   var T = res.totals;
   var now = new Date();
