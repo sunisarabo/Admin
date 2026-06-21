@@ -526,6 +526,11 @@ function rrRoundAgg_(a) {
 }
 
 function readRosterFromSpreadsheet(ss) {
+  if (!ss || typeof ss.getSheets !== 'function') {
+    throw new Error('readRosterFromSpreadsheet() ต้องส่ง Spreadsheet object — เป็นฟังก์ชันภายใน ' +
+      'อย่ารันตรงๆ จากปุ่ม Run. ให้รัน entry point แทน เช่น runDailyRosterReport(), ' +
+      'runLegacyToday(), runLegacyReport(2026,6,21) หรือ testRosterFromId(psaId, llId, 2026,6,21).');
+  }
   var teams = {};
   var positions = {};                                        // exact per-position-group rollup
   var totals = rrNewAgg_();

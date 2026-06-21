@@ -9,9 +9,10 @@
  *   ⚠️ Use EITHER this single file OR the split .gs files in roster-bot/ —
  *      never both in the same Apps Script project (functions would collide).
  *
- * Two report pipelines on one shared reader layer:
- *   Bot A (web/dashboard): runDailyRosterReport() / setupTriggers() / doGet()
- *   Bot B (detailed/HR):   runLegacyToday() / runLegacyReport(y,m,d) / setupLegacyTriggers()
+ *   ▶ RUN AN ENTRY POINT, never an internal helper:
+ *       Bot A (web/dashboard): runDailyRosterReport() / setupTriggers() / doGet()
+ *       Bot B (detailed/HR):   runLegacyToday() / runLegacyReport(y,m,d) / setupLegacyTriggers()
+ *       Manual smoke test:     testRosterFromId('<psaId>','<llId>',2026,6,21)
  *
  * Sections below (in dependency order):
  *   1) RosterReader   2) LLReader   3) MasterReader   4) SLA   5) Validation
@@ -553,6 +554,11 @@ function rrRoundAgg_(a) {
 }
 
 function readRosterFromSpreadsheet(ss) {
+  if (!ss || typeof ss.getSheets !== 'function') {
+    throw new Error('readRosterFromSpreadsheet() ต้องส่ง Spreadsheet object — เป็นฟังก์ชันภายใน ' +
+      'อย่ารันตรงๆ จากปุ่ม Run. ให้รัน entry point แทน เช่น runDailyRosterReport(), ' +
+      'runLegacyToday(), runLegacyReport(2026,6,21) หรือ testRosterFromId(psaId, llId, 2026,6,21).');
+  }
   var teams = {};
   var positions = {};                                        // exact per-position-group rollup
   var totals = rrNewAgg_();
@@ -3301,7 +3307,10 @@ function exportSheetAsPDF_(ss, sh) {
 }
 
 function writePDFLayout_(sh, master, psa, ll, date, slotLabel, timeStr) {
-  [110, 60, 60, 65, 50, 50, 60, 20, 110, 60, 60, 65, 50, 50, 60].forEach(function (w, i) {
+  // Col 8 is the gap between the PSA (1-7) and LL (9-15) halves at the top, but
+  // the per-team table below spans cols 1-9 — so cols 7 & 8 carry OT_B/OT_A and
+  // must be wide enough not to truncate "N (XX.Xh)".
+  [110, 60, 60, 65, 50, 50, 72, 72, 110, 60, 60, 65, 50, 50, 60].forEach(function (w, i) {
     sh.setColumnWidth(i + 1, w);
   });
 

@@ -318,7 +318,10 @@ function exportSheetAsPDF_(ss, sh) {
 }
 
 function writePDFLayout_(sh, master, psa, ll, date, slotLabel, timeStr) {
-  [110, 60, 60, 65, 50, 50, 60, 20, 110, 60, 60, 65, 50, 50, 60].forEach(function (w, i) {
+  // Col 8 is the gap between the PSA (1-7) and LL (9-15) halves at the top, but
+  // the per-team table below spans cols 1-9 — so cols 7 & 8 carry OT_B/OT_A and
+  // must be wide enough not to truncate "N (XX.Xh)".
+  [110, 60, 60, 65, 50, 50, 72, 72, 110, 60, 60, 65, 50, 50, 60].forEach(function (w, i) {
     sh.setColumnWidth(i + 1, w);
   });
 
