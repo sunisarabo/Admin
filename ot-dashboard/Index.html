@@ -1709,6 +1709,37 @@ function loadOverrides(){
   try{TEMPLATE_FILE_ID=localStorage.getItem('ot_dashboard_template_id')||'';}catch(e){}
 }
 
+// Apply live PSA data (from getPSAData_) onto months the dashboard already
+// tracks. Updates each team's weekly OT hours and the A1–A8 code breakdown from
+// the OT-Yearly sheet; flight counts are left untouched (they come from the
+// Flight Feed). Months not already in PSA_DATA are skipped on purpose — their
+// manpower baseline isn't in these sheets, so they're added deliberately, not
+// auto-spawned half-populated.
+function applyLivePSA(psa){
+  if(!psa||typeof psa!=='object')return 0;
+  const hm=min=>{const h=Math.floor((min||0)/60),x=Math.round((min||0)%60);return h+':'+String(x).padStart(2,'0');};
+  let n=0;
+  Object.keys(psa).forEach(mk=>{
+    if(mk.charAt(0)==='_')return;
+    const m=psa[mk]; if(!m||typeof m!=='object')return;
+    const rec=PSA_DATA[mk]; if(!rec)return;            // existing months only
+    if(m.teams){
+      Object.keys(m.teams).forEach(tc=>{
+        if(!rec.teams[tc])return;
+        const mins=m.teams[tc]||[];
+        rec.teams[tc].hours=[0,1,2,3].map(i=>hm(mins[i]||0));
+      });
+    }
+    if(m.codes&&Object.keys(m.codes).length){
+      const nc={};
+      Object.keys(m.codes).forEach(cc=>{nc[cc]={mins:[0,1,2,3].map(i=>(m.codes[cc]||[])[i]||0)};});
+      rec.codes=nc;
+    }
+    n++;
+  });
+  return n;
+}
+
 // ========== Apps Script live-fetch bridge ==========
 function applyServerData(srv){
   try{
@@ -1717,6 +1748,10 @@ function applyServerData(srv){
     if(srv.LL && Object.keys(srv.LL).length>0 && !srv.LL._error){
       applyLiveLL(srv.LL);
       summary.push('LL '+Object.keys(LL_DATA).length+' เดือน');
+    }
+    if(srv.PSA && typeof srv.PSA==='object' && !srv.PSA._error){
+      const np=applyLivePSA(srv.PSA);
+      if(np)summary.push('PSA OT '+np+' เดือน');
     }
     window.LAST_FLIGHTS_RAW = srv.Flights;
     if(srv.Flights && !srv.Flights._error){

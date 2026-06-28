@@ -304,88 +304,111 @@ function getPSAData_() {
   try {
     const ss = SpreadsheetApp.openById(OT_YEARLY_FILE_ID);
     const sheets = ss.getSheets();
-    if (sheets.length <= PSA_SHEET_INDEX) {
-      return { _error: 'PSA sheet index ' + PSA_SHEET_INDEX + ' not found (have ' + sheets.length + ' sheets)' };
-    }
-    return parsePSASheet_(sheets[PSA_SHEET_INDEX]);
+    const merged = {};
+    let found = false;
+    const tryParse = (sh) => {
+      if (!sh) return;
+      const res = parsePSASheet_(sh);
+      if (res && !res._error) {
+        Object.keys(res).forEach(k => { if (k[0] !== '_') merged[k] = res[k]; });
+        found = true;
+      }
+    };
+    tryParse(sheets[PSA_SHEET_INDEX]);        // configured tab first
+    if (!found) sheets.forEach(tryParse);     // else scan every tab so order can change
+    return found ? merged
+                 : { _error: 'PSA: ไม่พบตาราง Team/Week หรือ Code/Week (' + sheets.length + ' tabs)' };
   } catch (e) {
     return { _error: String(e) };
   }
 }
 
+// Map a PSA "Team/Week" row label (e.g. "EK/UO/FY/6B/BY", "CHINA",
+// "Porter Crewsign") to the dashboard team code. Airline groups → first token;
+// the named rows have explicit aliases. Returns null for unrecognised labels.
+function teamCodeFromLabel_(label) {
+  const s = String(label || '').trim();
+  if (!s) return null;
+  const up = s.toUpperCase().replace(/\s+/g, ' ');
+  const ALIAS = {
+    'CHINA': 'CHN', 'CHARTER': 'CHARTER', 'PVT': 'PVT', 'PG': 'PG',
+    'PORTER': 'PORTER', 'PORTER CREWSIGN': 'PORTERSIGN',
+    'ADMIN DOC': 'ADMINDOC', 'OFFICE': 'OFFICE',
+  };
+  if (ALIAS[up]) return ALIAS[up];
+  if (s.indexOf('/') >= 0) return s.split('/')[0].trim().toUpperCase();  // airline group
+  return null;
+}
+
+// Parse one OT-Yearly sheet. Per month it holds a "Team/Week" table (airline
+// groups × week) and a "Code / Week" table (A1–A8 × week). Both feed the same
+// month key. Returns
+//   { "May 2026": { teams:{EK:[m,m,m,m],…}, codes:{A1:[m,m,m,m],…},
+//                   weekTotals:[…], weekLabels:[…], monthTotal } , … }
 function parsePSASheet_(sheet) {
   const values = sheet.getDataRange().getValues();
   const out = {};
-  const debug = { sheetName: sheet.getName(), tablesFound: 0 };
 
   for (let r = 0; r < values.length; r++) {
     const row = values[r];
     if (!row) continue;
 
-    // ตรวจว่าเป็นแถว header ของตารางหรือไม่
-    let teamCol = -1;
+    // header detection — "Team/Week" or "Code / Week" + week-range columns
+    let labelCol = -1;
     const weekCols = [];
     for (let c = 0; c < row.length; c++) {
       const cell = String(row[c] || '');
-      if (teamCol < 0 && /team\s*\/\s*week/i.test(cell)) teamCol = c;
+      if (labelCol < 0 && /\/\s*week/i.test(cell)) labelCol = c;
       if (WEEK_RANGE_RE.test(cell)) weekCols.push(c);
     }
-    const isHeader = (teamCol >= 0 && weekCols.length >= 2) || weekCols.length >= 3;
+    const isHeader = (labelCol >= 0 && weekCols.length >= 2) || weekCols.length >= 3;
     if (!isHeader) continue;
 
-    // เดือน/ปี จาก label สัปดาห์แรก
     const wm = String(row[weekCols[0]]).match(WEEK_RANGE_RE);
     const mIdx = wm ? monthIndexFromName_(wm[3].replace(/\./g, '')) : -1;
     if (mIdx < 0) continue;
     const key = MONTH_NUM_TO_ABBR[mIdx] + ' ' + wm[4];
 
-    const codeCol  = teamCol >= 0 ? teamCol : 0;
+    const codeCol  = labelCol >= 0 ? labelCol : 0;
     const totalCol = row.findIndex(c => /^(รวม|total)$/i.test(String(c || '').trim()));
 
-    const teams = {};
-    const rowTotals = {};
-    let weekTotals = null, monthTotal = 0;
+    const rec = out[key] || (out[key] = {
+      teams: {}, codes: {}, weekTotals: null, monthTotal: 0,
+      weekLabels: weekCols.map(c => String(row[c]).replace(/\s+/g, ' ').trim()),
+    });
 
     for (let rr = r + 1; rr < values.length; rr++) {
       const label = String(values[rr][codeCol] || '').trim();
-      if (/^A\d+$/i.test(label)) {
-        teams[label.toUpperCase()] = weekCols.map(c => hmsToMin_(values[rr][c]));
-        if (totalCol >= 0) rowTotals[label.toUpperCase()] = hmsToMin_(values[rr][totalCol]);
-      } else if (/^(รวม|total)$/i.test(label)) {
-        weekTotals = weekCols.map(c => hmsToMin_(values[rr][c]));
-        if (totalCol >= 0) monthTotal = hmsToMin_(values[rr][totalCol]);
-        break;                                   // ตารางจบที่แถว "รวม"
-      } else if (label === '' && Object.keys(teams).length > 0) {
+      if (/\/\s*week/i.test(label)) break;                          // next table header
+      if (/^A\d+$/i.test(label)) {                                  // code row
+        rec.codes[label.toUpperCase()] = weekCols.map(c => hmsToMin_(values[rr][c]));
+      } else if (/^(รวม|total)$/i.test(label)) {                    // footer
+        const wt = weekCols.map(c => hmsToMin_(values[rr][c]));
+        if (!rec.weekTotals || wt.reduce((a, b) => a + b, 0) > 0) rec.weekTotals = wt;
+        if (totalCol >= 0) { const mt = hmsToMin_(values[rr][totalCol]); if (mt) rec.monthTotal = mt; }
         break;
+      } else if (label === '') {                                   // blank → table ends
+        if (Object.keys(rec.teams).length || Object.keys(rec.codes).length) break;
+      } else {                                                     // team row
+        const tc = teamCodeFromLabel_(label);
+        if (tc) rec.teams[tc] = weekCols.map(c => hmsToMin_(values[rr][c]));
       }
     }
-
-    // fallback ถ้าไม่มีแถว "รวม"
-    if (!weekTotals) {
-      weekTotals = weekCols.map((_, i) =>
-        Object.keys(teams).reduce((sum, t) => sum + (teams[t][i] || 0), 0));
-    }
-    if (!monthTotal) monthTotal = weekTotals.reduce((a, b) => a + b, 0);
-
-    out[key] = {
-      teams: teams,
-      weekTotals: weekTotals,
-      monthTotal: monthTotal,
-      weekLabels: weekCols.map(c => String(row[c]).replace(/\s+/g, ' ').trim()),
-      _rowTotals: rowTotals,
-    };
-    debug.tablesFound++;
-    // ปล่อยให้ loop ไหลต่อ — แถว A1..รวม ไม่ใช่ header จึงถูกข้ามไปเอง
   }
+
+  Object.keys(out).forEach(key => {
+    const rec = out[key];
+    if (!rec.weekTotals) {
+      const src = Object.keys(rec.teams).length ? rec.teams : rec.codes;
+      rec.weekTotals = rec.weekLabels.map((_, i) =>
+        Object.keys(src).reduce((s, t) => s + (src[t][i] || 0), 0));
+    }
+    if (!rec.monthTotal) rec.monthTotal = rec.weekTotals.reduce((a, b) => a + b, 0);
+  });
 
   if (Object.keys(out).length === 0) {
-    return {
-      _error: 'ไม่พบตาราง PSA บนชีต "' + sheet.getName() + '"',
-      _debug: debug,
-      _hint: 'header ต้องมีเซลล์ "Team/Week" + label สัปดาห์เช่น "1-7 May 2026" (หรือมี label สัปดาห์ >= 3 เซลล์)',
-    };
+    return { _error: 'ไม่พบตาราง PSA บนชีต "' + sheet.getName() + '"' };
   }
-  out._debug = debug;
   return out;
 }
 
