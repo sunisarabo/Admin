@@ -13,6 +13,7 @@
  *       Bot A (web/dashboard): runDailyRosterReport() / setupTriggers() / doGet()
  *       Bot B (detailed/HR):   runLegacyToday() / runLegacyReport(y,m,d) / setupLegacyTriggers()
  *       Manual smoke test:     testRosterFromId('<psaId>','<llId>',2026,6,21)
+ *       Migrate from old bot:  removeAllTriggers()  (clears stale runMorning/...)
  *
  * Sections below (in dependency order):
  *   1) RosterReader   2) LLReader   3) MasterReader   4) SLA   5) Validation
@@ -1390,13 +1391,26 @@ function runRosterForDate(y, m, d) {
  * แต่ละรอบจะอ่านไฟล์ของวันนั้น + อัปเดตแท็บ + ส่งเข้า Google Chat
  */
 function setupTriggers() {
+  // Remove our own daily trigger AND any stale triggers left by the old v3.1 bot
+  // (runMorning / runAfternoon / runManual) so they stop firing "function not found".
+  var STALE = ['runDailyRosterReport', 'runMorning', 'runAfternoon', 'runManual'];
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'runDailyRosterReport') ScriptApp.deleteTrigger(t);
+    if (STALE.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('runDailyRosterReport').timeBased().atHour(8).nearMinute(0).everyDays(1).create();
   ScriptApp.newTrigger('runDailyRosterReport').timeBased().atHour(14).nearMinute(0).everyDays(1).create();
   var w = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP) ? 'ตั้งแล้ว' : 'ยังไม่ตั้ง (ใส่ใน Script Properties)';
-  Logger.log('✅ ตั้ง trigger รันทุกวัน 08:00 และ 14:00 แล้ว · Google Chat webhook: ' + w);
+  Logger.log('✅ ตั้ง trigger รันทุกวัน 08:00 และ 14:00 แล้ว (ลบ trigger เก่า runMorning/runAfternoon ทิ้งด้วย) · Google Chat webhook: ' + w);
+}
+
+/**
+ * ลบ trigger ทั้งหมดของโปรเจกต์ — ใช้ตอนย้ายจากบอตเก่ามาบอตใหม่
+ * (เผื่อมี trigger ค้างชื่ออื่น) แล้วค่อยรัน setupTriggers()/setupLegacyTriggers() ใหม่
+ */
+function removeAllTriggers() {
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); n++; });
+  Logger.log('🗑️ ลบ trigger ทั้งหมด %s ตัว — รัน setupTriggers() และ/หรือ setupLegacyTriggers() เพื่อตั้งใหม่', n);
 }
 
 /**
