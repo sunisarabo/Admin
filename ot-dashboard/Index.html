@@ -300,8 +300,9 @@ function manpowerMonth(mk, scope){
   const idx = PSA_MONTHS.indexOf(mk);
   if(idx<0) return 0;
   if(scope==='PSA') return MANPOWER_DEPT.PSA[idx]||0;
+  if(scope==='LP')  return (MANPOWER_DEPT.LP&&MANPOWER_DEPT.LP[idx])||0;
   if(scope==='LL')  return MANPOWER_DEPT.LL[idx]||0;
-  if(scope==='TOTAL') return (MANPOWER_DEPT.PSA[idx]||0)+(MANPOWER_DEPT.LL[idx]||0);
+  if(scope==='TOTAL') return (MANPOWER_DEPT.PSA[idx]||0)+((MANPOWER_DEPT.LP&&MANPOWER_DEPT.LP[idx])||0)+(MANPOWER_DEPT.LL[idx]||0);
   return 0;
 }
 function manpowerTeam(team, mk){
@@ -317,11 +318,17 @@ const MCOLS = ['#1e40af','#2563eb','#3b82f6','#60a5fa','#93c5fd','#bfdbfe','#dbe
 [MANPOWER_DEPT, MANPOWER_TEAM, MANPOWER_LL_POSITION, MANPOWER_LL_TEAM].forEach(obj=>{
   Object.keys(obj).forEach(k=>{const a=obj[k];while(a.length<PSA_MONTHS.length)a.push(a[a.length-1]);});
 });
-// PSA department headcount = passenger-service (airline) teams only. The four
-// support teams (PORTER, Porter Crewsign, ADMIN DOC, OFFICE) are still tracked
-// at team level but excluded from the PSA dept total, per the agreed split.
-const PSA_AIRLINE_TEAMS = ['EK','SQ','EY','TR','WY','JQ','TK','KC','QR','AK','SU','CHN','CHARTER','PVT','PG','SV'];
-MANPOWER_DEPT.PSA = PSA_MONTHS.map((_,i)=>PSA_AIRLINE_TEAMS.reduce((s,t)=>s+(MANPOWER_TEAM[t][i]||0),0));
+// Department headcount grouping (3 departments), computed from MANPOWER_TEAM /
+// MANPOWER_LL_TEAM so every month is consistent:
+//   PSA = passenger-service airline teams + Crewsign / Admin Doc / Office
+//   LP  = Porter + PVT
+//   LL  = Lost & Found + Porter LL + Admin LL
+const PSA_TEAMS = ['EK','SQ','EY','TR','WY','JQ','TK','KC','QR','AK','SU','CHN','CHARTER','PG','SV','PORTERSIGN','ADMINDOC','OFFICE'];
+const LP_TEAMS  = ['PORTER','PVT'];
+const LL_TEAMS  = ['Lost & Found','Porter LL','Admin LL'];
+MANPOWER_DEPT.PSA = PSA_MONTHS.map((_,i)=>PSA_TEAMS.reduce((s,t)=>s+(MANPOWER_TEAM[t][i]||0),0));
+MANPOWER_DEPT.LP  = PSA_MONTHS.map((_,i)=>LP_TEAMS.reduce((s,t)=>s+(MANPOWER_TEAM[t][i]||0),0));
+MANPOWER_DEPT.LL  = PSA_MONTHS.map((_,i)=>LL_TEAMS.reduce((s,t)=>s+(MANPOWER_LL_TEAM[t][i]||0),0));
 // Public-holiday note per month (official AOTGA 2568/2569 shift-worker calendar)
 // — shown on both PSA and LL month pages so the Holiday OT (code A7) is
 // labelled with which public holiday it covers.
@@ -1080,11 +1087,12 @@ function combinedSummaryCard(){
   });
   const lastMk=PSA_MONTHS[PSA_MONTHS.length-1];
   const mpPSA=manpowerMonth(lastMk,'PSA');
+  const mpLP=manpowerMonth(lastMk,'LP');
   const mpLL=manpowerMonth(lastMk,'LL');
-  const mpTotal=mpPSA+mpLL;
+  const mpTotal=mpPSA+mpLP+mpLL;
   return `<div class="card" style="background:linear-gradient(135deg,#dbeafe 0%,#ede9fe 100%);border-color:#a5b4fc;padding:1rem 1.25rem;margin-bottom:1rem">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div style="font-size:13.5px;font-weight:600;color:#1e40af">📊 Executive Summary — PSA + LL Combined</div>
+      <div style="font-size:13.5px;font-weight:600;color:#1e40af">📊 Executive Summary — PSA + LP + LL Combined</div>
       <div style="font-size:11px;color:#475569">${PSA_MONTHS[0]} – ${PSA_MONTHS[PSA_MONTHS.length-1]}</div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
@@ -1111,7 +1119,7 @@ function combinedSummaryCard(){
       <div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border-left:3px solid #f59e0b">
         <div style="font-size:10.5px;color:#475569;margin-bottom:3px">Headcount Total</div>
         <div style="font-size:17px;font-weight:600;color:#b45309">${mpTotal} คน</div>
-        <div style="font-size:10px;color:#64748b">PSA ${mpPSA} + LL ${mpLL} (${lastMk})</div>
+        <div style="font-size:10px;color:#64748b">PSA ${mpPSA} + LP ${mpLP} + LL ${mpLL} (${lastMk})</div>
       </div>
     </div>
   </div>
@@ -1151,8 +1159,9 @@ function renderCombinedCharts(){
     CH['overviewMP']=new Chart(document.getElementById('overviewMP'),{type:'line',
       data:{labels:PSA_MONTHS,datasets:[
         {label:'PSA Headcount',data:MANPOWER_DEPT.PSA,borderColor:'#3b82f6',backgroundColor:'#3b82f622',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#3b82f6',tension:0.3,fill:false},
+        {label:'LP Headcount',data:MANPOWER_DEPT.LP,borderColor:'#f59e0b',backgroundColor:'#f59e0b22',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#f59e0b',tension:0.3,fill:false},
         {label:'LL Headcount',data:MANPOWER_DEPT.LL,borderColor:'#8b5cf6',backgroundColor:'#8b5cf622',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#8b5cf6',tension:0.3,fill:false},
-        {label:'Total',data:PSA_MONTHS.map((_,i)=>MANPOWER_DEPT.PSA[i]+MANPOWER_DEPT.LL[i]),borderColor:'#10b981',backgroundColor:'#10b98122',borderWidth:2,pointRadius:3.5,pointBackgroundColor:'#10b981',tension:0.3,fill:false,borderDash:[5,3]},
+        {label:'Total',data:PSA_MONTHS.map((_,i)=>MANPOWER_DEPT.PSA[i]+MANPOWER_DEPT.LP[i]+MANPOWER_DEPT.LL[i]),borderColor:'#10b981',backgroundColor:'#10b98122',borderWidth:2,pointRadius:3.5,pointBackgroundColor:'#10b981',tension:0.3,fill:false,borderDash:[5,3]},
       ]},
       options:{responsive:true,maintainAspectRatio:false,
         layout:{padding:{top:20}},
