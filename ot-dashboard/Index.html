@@ -1145,7 +1145,7 @@ function combinedSummaryCard(){
     </div>
   </div>
   <div class="card">
-    <div class="card-t">KP vs LL — Monthly OT Comparison (Oct 2025 – ${PSA_MONTHS[PSA_MONTHS.length-1]})</div>
+    <div class="card-t">KP vs LP vs LL — Monthly OT Comparison (Oct 2025 – ${PSA_MONTHS[PSA_MONTHS.length-1]})</div>
     <div style="position:relative;width:100%;height:300px"><canvas id="overviewCmp"></canvas></div>
   </div>
   <div class="card">
@@ -1157,12 +1157,14 @@ function combinedSummaryCard(){
 function renderCombinedCharts(){
   if(document.getElementById('overviewCmp')){
     dc('overviewCmp');
-    const psaData=PSA_MONTHS.map(mk=>+(mTotalPSA(mk)/60).toFixed(1));
+    const kpData=PSA_MONTHS.map(mk=>+(deptOTmonth(mk,PSA_TEAMS)/60).toFixed(1));
+    const lpData=PSA_MONTHS.map(mk=>+(deptOTmonth(mk,LP_TEAMS)/60).toFixed(1));
     const llData=PSA_MONTHS.map(mk=>+((LL_DATA[mk]?llTotalMonth(mk):0)/60).toFixed(1));
     const flights=PSA_MONTHS.map(mk=>PSA_DATA[mk]?PSA_DATA[mk].flightCounts.reduce((a,b)=>a+b,0):0);
     CH['overviewCmp']=new Chart(document.getElementById('overviewCmp'),{type:'bar',
       data:{labels:PSA_MONTHS,datasets:[
-        {label:'KP OT (hrs)',data:psaData,backgroundColor:'#3b82f6',borderRadius:3,yAxisID:'y',order:3},
+        {label:'KP OT (hrs)',data:kpData,backgroundColor:'#3b82f6',borderRadius:3,yAxisID:'y',order:3},
+        {label:'LP OT (hrs)',data:lpData,backgroundColor:'#f59e0b',borderRadius:3,yAxisID:'y',order:3},
         {label:'LL OT (hrs)',data:llData,backgroundColor:'#8b5cf6',borderRadius:3,yAxisID:'y',order:3},
         {label:'Flights',data:flights,type:'line',borderColor:'#ef4444',backgroundColor:'#ef444422',borderWidth:2.5,pointRadius:4.5,pointBackgroundColor:'#ef4444',tension:0.3,fill:false,yAxisID:'y1',order:1},
       ]},
