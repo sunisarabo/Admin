@@ -317,16 +317,22 @@ const MCOLS = ['#1e40af','#2563eb','#3b82f6','#60a5fa','#93c5fd','#bfdbfe','#dbe
 [MANPOWER_DEPT, MANPOWER_TEAM, MANPOWER_LL_POSITION, MANPOWER_LL_TEAM].forEach(obj=>{
   Object.keys(obj).forEach(k=>{const a=obj[k];while(a.length<PSA_MONTHS.length)a.push(a[a.length-1]);});
 });
-// Public-holiday note per month — shown on both PSA and LL month pages so the
-// Holiday OT (code A7) is labelled with which นักขัตฤกษ์ it covers.
+// PSA department headcount = passenger-service (airline) teams only. The four
+// support teams (PORTER, Porter Crewsign, ADMIN DOC, OFFICE) are still tracked
+// at team level but excluded from the PSA dept total, per the agreed split.
+const PSA_AIRLINE_TEAMS = ['EK','SQ','EY','TR','WY','JQ','TK','KC','QR','AK','SU','CHN','CHARTER','PVT','PG','SV'];
+MANPOWER_DEPT.PSA = PSA_MONTHS.map((_,i)=>PSA_AIRLINE_TEAMS.reduce((s,t)=>s+(MANPOWER_TEAM[t][i]||0),0));
+// Public-holiday note per month (official AOTGA 2568/2569 shift-worker calendar)
+// — shown on both PSA and LL month pages so the Holiday OT (code A7) is
+// labelled with which public holiday it covers.
 const HOLIDAYS = {
-  'Oct 2025':'วันหยุดนักขัตฤกษ์: 13 ต.ค. วันนวมินทรมหาราช • 23 ต.ค. วันปิยมหาราช',
-  'Dec 2025':'วันหยุดนักขัตฤกษ์: 5 ธ.ค. วันชาติ/วันพ่อ • 10 ธ.ค. วันรัฐธรรมนูญ • 31 ธ.ค. วันสิ้นปี',
-  'Jan 2026':'วันหยุดนักขัตฤกษ์: 1 ม.ค. วันขึ้นปีใหม่',
-  'Mar 2026':'วันหยุดนักขัตฤกษ์: 3 มี.ค. วันมาฆบูชา',
-  'Apr 2026':'วันหยุดนักขัตฤกษ์: 6 เม.ย. วันจักรี • 13–15 เม.ย. วันสงกรานต์',
-  'May 2026':'วันหยุดนักขัตฤกษ์: 1 พ.ค. วันแรงงาน • 4 พ.ค. วันฉัตรมงคล',
-  'Jun 2026':'วันหยุดนักขัตฤกษ์: 1 มิ.ย. วันวิสาขบูชา (ชดเชย) • 3 มิ.ย. วันเฉลิมพระชนมพรรษาสมเด็จพระนางเจ้าฯ พระบรมราชินี',
+  'Oct 2025':'Public Holidays: Mon Oct 13 (King Bhumibol Memorial Day) • Thu Oct 23 (Chulalongkorn Day)',
+  'Dec 2025':'Public Holidays: Fri Dec 5 (King Bhumibol\'s Birthday / Father\'s Day) • Wed Dec 31 (New Year\'s Eve)',
+  'Jan 2026':'Public Holiday: Thu Jan 1 (New Year\'s Day)',
+  'Mar 2026':'Public Holiday: Tue Mar 3 (Makha Bucha Day)',
+  'Apr 2026':'Public Holidays: Mon Apr 6 (Chakri Memorial Day) • Mon-Tue Apr 13-14 (Songkran)',
+  'May 2026':'Public Holiday: Fri May 1 (National Labour Day)',
+  'Jun 2026':'Public Holiday: Wed Jun 3 (H.M. Queen Suthida\'s Birthday)',
 };
 
 // ---------- PSA Data ----------
@@ -1262,7 +1268,7 @@ function renderPSAMonth(mk){
     <div class="metric"><div class="metric-l">Headcount</div><div class="metric-v">${manpowerMonth(mk,'PSA')||'-'}</div><div class="metric-s">PSA dept end of ${mk}</div></div>
     <div class="metric"><div class="metric-l">Total flights</div><div class="metric-v">${d.flightCounts.reduce((a,b)=>a+b,0).toLocaleString('en-US')}</div><div class="metric-s">${mk}</div></div>
   </div>
-  ${HOLIDAYS[mk]?`<div class="card" style="background:#fef3c7;border-color:#fcd34d;padding:12px 16px;margin-bottom:1rem"><div style="font-size:12px;color:#a16207;line-height:1.4;font-weight:500">${HOLIDAYS[mk]}${a7min>0?` <span style="color:#dc2626">— OT วันหยุด (A7) ${fmtH(a7min)} ชม.</span>`:''}</div></div>`:''}
+  ${HOLIDAYS[mk]?`<div class="card" style="background:#fef3c7;border-color:#fcd34d;padding:12px 16px;margin-bottom:1rem"><div style="font-size:12px;color:#a16207;line-height:1.4;font-weight:500">${HOLIDAYS[mk]}${a7min>0?` <span style="color:#dc2626">— Holiday OT (A7) ${fmtH(a7min)} hrs</span>`:''}</div></div>`:''}
   <div class="card"><div class="card-t">OT vs Flights — ${mk}</div><div style="position:relative;width:100%;height:300px"><canvas id="mChart"></canvas></div></div>
   ${(d.codes&&Object.keys(d.codes).length>0)?`<div class="card"><div class="card-t">PSA Code breakdown (A1–A8) — ${mk}</div><div style="position:relative;width:100%;height:260px"><canvas id="psaCodeMonth"></canvas></div></div>`:''}
   <div class="card"><div class="card-t">Team breakdown — weekly detail</div><div class="tw"><table id="mtbl"></table></div></div>`;
@@ -1451,7 +1457,7 @@ function renderLLMonth(mk){
     <div class="metric"><div class="metric-l">LL hrs</div><div class="metric-v" style="font-size:14px;color:var(--c-LL)">${fmtH(llCatMonth(mk,'LL'))}</div><div class="metric-s">${total?Math.round(llCatMonth(mk,'LL')/total*100):0}% of total</div></div>
     <div class="metric"><div class="metric-l">A7 Holiday OT</div><div class="metric-v" style="font-size:14px;color:#dc2626">${fmtH(llCodeMonth(mk,'A7'))}</div><div class="metric-s">${total?Math.round(llCodeMonth(mk,'A7')/total*100):0}% of total</div></div>
   </div>
-  ${HOLIDAYS[mk]?`<div class="card" style="background:#fef3c7;border-color:#fcd34d;padding:12px 16px;margin-bottom:1rem"><div style="font-size:12px;color:#a16207;line-height:1.4;font-weight:500">${HOLIDAYS[mk]}${a7min>0?` <span style="color:#dc2626">— OT วันหยุด (A7) ${fmtH(a7min)} ชม.</span>`:''}</div></div>`:''}
+  ${HOLIDAYS[mk]?`<div class="card" style="background:#fef3c7;border-color:#fcd34d;padding:12px 16px;margin-bottom:1rem"><div style="font-size:12px;color:#a16207;line-height:1.4;font-weight:500">${HOLIDAYS[mk]}${a7min>0?` <span style="color:#dc2626">— Holiday OT (A7) ${fmtH(a7min)} hrs</span>`:''}</div></div>`:''}
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px;flex-wrap:wrap;gap:8px">
       <div class="card-t" style="margin:0">${Array.isArray(r.weeks)?'Weekly':'Monthly'} OT — Regular + Holiday (A7)</div>
@@ -1460,7 +1466,7 @@ function renderLLMonth(mk){
     <div style="position:relative;width:100%;height:300px"><canvas id="llmWeekly"></canvas></div>
   </div>
   <div class="card"><div class="card-t">Category breakdown — ${mk}</div><div style="position:relative;width:100%;height:260px"><canvas id="llmCat"></canvas></div></div>
-  ${hasCodes?`<div class="card"><div class="card-t">Code breakdown (A1–A8) — ${mk}</div><div style="position:relative;width:100%;height:280px"><canvas id="llmCode"></canvas></div></div>`:`<div class="card"><div class="card-t">Code breakdown (A1–A8) — ${mk}</div><div style="padding:16px;color:var(--txt-3);font-size:12px;line-height:1.5">ยังไม่มีข้อมูลแยกโค้ดสำหรับ ${mk} — ต้นทาง (OT_LL) ลงเฉพาะยอดรวมเดือน ระบบจะแสดงให้อัตโนมัติเมื่อชีตลงแยกโค้ด A1–A8 ครบ (ดึงสด)</div></div>`}
+  ${hasCodes?`<div class="card"><div class="card-t">Code breakdown (A1–A8) — ${mk}</div><div style="position:relative;width:100%;height:280px"><canvas id="llmCode"></canvas></div></div>`:`<div class="card"><div class="card-t">Code breakdown (A1–A8) — ${mk}</div><div style="padding:16px;color:var(--txt-3);font-size:12px;line-height:1.5">No code (A1–A8) breakdown yet for ${mk} — the source (OT_LL) currently holds the monthly total only. It will appear automatically once the A1–A8 split is filled in (live fetch).</div></div>`}
   <div class="card"><div class="card-t">Detail table</div><div class="tw"><table id="llmTbl"></table></div></div>`;
 
   dc('llmWeekly');
