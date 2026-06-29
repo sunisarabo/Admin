@@ -109,7 +109,7 @@ tr:hover td{background:var(--bg-soft);}
   .h-l h1{font-size:18px !important;color:#1e40af !important;}
   .h-l h1 span{display:none;}
   .h-l p{font-size:11px !important;color:#475569 !important;}
-  .header::after{content:'Generated: ' attr(data-date) ' • PSA + LL Overtime Report';display:block;font-size:9px;color:#64748b;margin-top:4px;}
+  .header::after{content:'Generated: ' attr(data-date) ' • KP + LL Overtime Report';display:block;font-size:9px;color:#64748b;margin-top:4px;}
   .metric{padding:8px 10px !important;}
   .metric-l{font-size:9px !important;}
   .metric-v{font-size:14px !important;font-weight:600 !important;}
@@ -132,10 +132,10 @@ tr:hover td{background:var(--bg-soft);}
   <div class="header" id="dashHeader">
     <div class="h-l">
       <h1>OT Dashboard <span style="font-size:11px;font-weight:500;color:var(--txt-3);background:var(--bg-info);color:var(--txt-info);padding:2px 7px;border-radius:4px;margin-left:6px;vertical-align:middle">LIVE</span></h1>
-      <p id="hdr-sub">PSA — Overtime by team (weekly) • Oct 2025 – May 2026</p>
+      <p id="hdr-sub">KP — Overtime by team (weekly) • Oct 2025 – May 2026</p>
     </div>
     <div class="dept-toggle">
-      <button class="dept-btn psa active" id="btnPSA" onclick="setDept('PSA')">PSA</button>
+      <button class="dept-btn psa active" id="btnPSA" onclick="setDept('PSA')">KP</button>
       <button class="dept-btn ll" id="btnLL" onclick="setDept('LL')">LL</button>
     </div>
   </div>
@@ -145,7 +145,7 @@ tr:hover td{background:var(--bg-soft);}
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
       Refresh All
     </button>
-    <button class="btn" id="btnTemplate" onclick="setTemplateId()" title="ใช้ Admin Template (long format) เป็น single source — PSA + LL ในไฟล์เดียว">
+    <button class="btn" id="btnTemplate" onclick="setTemplateId()" title="ใช้ Admin Template (long format) เป็น single source — KP + LL ในไฟล์เดียว">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
       <span id="tplLbl">Template</span>
     </button>
@@ -155,7 +155,7 @@ tr:hover td{background:var(--bg-soft);}
     </button>
     <label class="btn" style="cursor:pointer">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      Upload PSA Flight CSV
+      Upload KP Flight CSV
       <input type="file" id="psaCsv" accept=".csv,.tsv,.txt" style="display:none" onchange="handlePsaCsv(event)">
     </label>
     <button class="btn" onclick="window.print()">
@@ -779,7 +779,7 @@ async function refreshFromTemplate(silent){
   const psaCount=parsePSAFromTemplate(text);
   const llCount=parseLLFromTemplate(text);
   if(psaCount===0&&llCount===0)throw new Error('ไม่พบข้อมูลใน sheet PSA_Data หรือ LL_Data');
-  if(!silent)showNotice('✓ โหลด Template สำเร็จ — PSA: '+psaCount+' rows • LL: '+llCount+' rows','success');
+  if(!silent)showNotice('✓ โหลด Template สำเร็จ — KP: '+psaCount+' rows • LL: '+llCount+' rows','success');
 }
 
 function extractSection(text,name){
@@ -1063,7 +1063,7 @@ window.setDept=function(d){
   document.getElementById('btnLL').classList.toggle('active',d==='LL');
   const psaRange=PSA_MONTHS.length?PSA_MONTHS[0]+' – '+PSA_MONTHS[PSA_MONTHS.length-1]:'no data';
   const llRange=LL_MONTH_LIST.length?LL_MONTH_LIST[0]+' – '+LL_MONTH_LIST[LL_MONTH_LIST.length-1]:'no data yet';
-  document.getElementById('hdr-sub').textContent=(d==='PSA'?'PSA — Overtime by team (weekly)':'LL — Overtime by category (monthly)')+' • '+ (d==='PSA'?psaRange:llRange);
+  document.getElementById('hdr-sub').textContent=(d==='PSA'?'KP — Overtime by team (weekly)':'LL — Overtime by category (monthly)')+' • '+ (d==='PSA'?psaRange:llRange);
   page='overview';
   go(page);
 };
@@ -1092,12 +1092,12 @@ function combinedSummaryCard(){
   const mpTotal=mpPSA+mpLP+mpLL;
   return `<div class="card" style="background:linear-gradient(135deg,#dbeafe 0%,#ede9fe 100%);border-color:#a5b4fc;padding:1rem 1.25rem;margin-bottom:1rem">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div style="font-size:13.5px;font-weight:600;color:#1e40af">📊 Executive Summary — PSA + LP + LL Combined</div>
+      <div style="font-size:13.5px;font-weight:600;color:#1e40af">📊 Executive Summary — KP + LP + LL Combined</div>
       <div style="font-size:11px;color:#475569">${PSA_MONTHS[0]} – ${PSA_MONTHS[PSA_MONTHS.length-1]}</div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
       <div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border-left:3px solid #3b82f6">
-        <div style="font-size:10.5px;color:#475569;margin-bottom:3px">PSA Total OT</div>
+        <div style="font-size:10.5px;color:#475569;margin-bottom:3px">KP Total OT</div>
         <div style="font-size:17px;font-weight:600;color:#1e40af">${fmtH(psaTotal)}</div>
         <div style="font-size:10px;color:#64748b">${mpPSA} คน (${lastMk})</div>
       </div>
@@ -1119,12 +1119,12 @@ function combinedSummaryCard(){
       <div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border-left:3px solid #f59e0b">
         <div style="font-size:10.5px;color:#475569;margin-bottom:3px">Headcount Total</div>
         <div style="font-size:17px;font-weight:600;color:#b45309">${mpTotal} คน</div>
-        <div style="font-size:10px;color:#64748b">PSA ${mpPSA} + LP ${mpLP} + LL ${mpLL} (${lastMk})</div>
+        <div style="font-size:10px;color:#64748b">KP ${mpPSA} + LP ${mpLP} + LL ${mpLL} (${lastMk})</div>
       </div>
     </div>
   </div>
   <div class="card">
-    <div class="card-t">PSA vs LL — Monthly OT Comparison (Oct 2025 – ${PSA_MONTHS[PSA_MONTHS.length-1]})</div>
+    <div class="card-t">KP vs LL — Monthly OT Comparison (Oct 2025 – ${PSA_MONTHS[PSA_MONTHS.length-1]})</div>
     <div style="position:relative;width:100%;height:300px"><canvas id="overviewCmp"></canvas></div>
   </div>
   <div class="card">
@@ -1141,7 +1141,7 @@ function renderCombinedCharts(){
     const flights=PSA_MONTHS.map(mk=>PSA_DATA[mk]?PSA_DATA[mk].flightCounts.reduce((a,b)=>a+b,0):0);
     CH['overviewCmp']=new Chart(document.getElementById('overviewCmp'),{type:'bar',
       data:{labels:PSA_MONTHS,datasets:[
-        {label:'PSA OT (hrs)',data:psaData,backgroundColor:'#3b82f6',borderRadius:3,yAxisID:'y',order:3},
+        {label:'KP OT (hrs)',data:psaData,backgroundColor:'#3b82f6',borderRadius:3,yAxisID:'y',order:3},
         {label:'LL OT (hrs)',data:llData,backgroundColor:'#8b5cf6',borderRadius:3,yAxisID:'y',order:3},
         {label:'Flights',data:flights,type:'line',borderColor:'#ef4444',backgroundColor:'#ef444422',borderWidth:2.5,pointRadius:4.5,pointBackgroundColor:'#ef4444',tension:0.3,fill:false,yAxisID:'y1',order:1},
       ]},
@@ -1158,7 +1158,7 @@ function renderCombinedCharts(){
     dc('overviewMP');
     CH['overviewMP']=new Chart(document.getElementById('overviewMP'),{type:'line',
       data:{labels:PSA_MONTHS,datasets:[
-        {label:'PSA Headcount',data:MANPOWER_DEPT.PSA,borderColor:'#3b82f6',backgroundColor:'#3b82f622',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#3b82f6',tension:0.3,fill:false},
+        {label:'KP Headcount',data:MANPOWER_DEPT.PSA,borderColor:'#3b82f6',backgroundColor:'#3b82f622',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#3b82f6',tension:0.3,fill:false},
         {label:'LP Headcount',data:MANPOWER_DEPT.LP,borderColor:'#f59e0b',backgroundColor:'#f59e0b22',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#f59e0b',tension:0.3,fill:false},
         {label:'LL Headcount',data:MANPOWER_DEPT.LL,borderColor:'#8b5cf6',backgroundColor:'#8b5cf622',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#8b5cf6',tension:0.3,fill:false},
         {label:'Total',data:PSA_MONTHS.map((_,i)=>MANPOWER_DEPT.PSA[i]+MANPOWER_DEPT.LP[i]+MANPOWER_DEPT.LL[i]),borderColor:'#10b981',backgroundColor:'#10b98122',borderWidth:2,pointRadius:3.5,pointBackgroundColor:'#10b981',tension:0.3,fill:false,borderDash:[5,3]},
@@ -1190,7 +1190,7 @@ function renderPSAOverview(){
   </div>
   <div class="card"><div class="card-t">Total OT per month vs Flight count</div><div style="position:relative;width:100%;height:240px"><canvas id="chtMo"></canvas></div></div>
   <div class="card"><div class="card-t">Monthly OT trend per team</div><div style="position:relative;width:100%;height:320px"><canvas id="chtTrend"></canvas></div><div class="leg" id="ovleg"></div></div>
-  ${(()=>{const any=PSA_MONTHS.some(mk=>PSA_DATA[mk]&&PSA_DATA[mk].codes&&Object.keys(PSA_DATA[mk].codes).length>0);return any?`<div class="card"><div class="card-t">PSA By Code (A1–A8) — all months combined</div><div style="position:relative;width:100%;height:240px"><canvas id="psaCodeAll"></canvas></div></div>`:'';})()}
+  ${(()=>{const any=PSA_MONTHS.some(mk=>PSA_DATA[mk]&&PSA_DATA[mk].codes&&Object.keys(PSA_DATA[mk].codes).length>0);return any?`<div class="card"><div class="card-t">KP By Code (A1–A8) — all months combined</div><div style="position:relative;width:100%;height:240px"><canvas id="psaCodeAll"></canvas></div></div>`:'';})()}
   <div class="card"><div class="card-t">Team totals — all months</div><div class="tw"><table id="ovtbl"></table></div></div>`;
 
   renderCombinedCharts();
@@ -1274,12 +1274,12 @@ function renderPSAMonth(mk){
     <div class="metric"><div class="metric-l">Total OT — ${mk}</div><div class="metric-v">${fmtH(gt)}</div><div class="metric-s">all teams</div></div>
     <div class="metric"><div class="metric-l">Top team</div><div class="metric-v" style="font-size:14px">${top.name}</div><div class="metric-s">${fmtH(top.min)} hrs</div></div>
     <div class="metric"><div class="metric-l">Peak week</div><div class="metric-v" style="font-size:13px">${d.weeks[peakIdx]?d.weeks[peakIdx].split(':')[1]?.trim():'-'}</div><div class="metric-s">${fmtH(wTots[peakIdx])} hrs</div></div>
-    <div class="metric"><div class="metric-l">Headcount</div><div class="metric-v">${manpowerMonth(mk,'PSA')||'-'}</div><div class="metric-s">PSA dept end of ${mk}</div></div>
+    <div class="metric"><div class="metric-l">Headcount</div><div class="metric-v">${manpowerMonth(mk,'PSA')||'-'}</div><div class="metric-s">KP dept end of ${mk}</div></div>
     <div class="metric"><div class="metric-l">Total flights</div><div class="metric-v">${d.flightCounts.reduce((a,b)=>a+b,0).toLocaleString('en-US')}</div><div class="metric-s">${mk}</div></div>
   </div>
   ${HOLIDAYS[mk]?`<div class="card" style="background:#fef3c7;border-color:#fcd34d;padding:12px 16px;margin-bottom:1rem"><div style="font-size:12px;color:#a16207;line-height:1.4;font-weight:500">${HOLIDAYS[mk]}${a7min>0?` <span style="color:#dc2626">— Holiday OT (A7) ${fmtH(a7min)} hrs</span>`:''}</div></div>`:''}
   <div class="card"><div class="card-t">OT vs Flights — ${mk}</div><div style="position:relative;width:100%;height:300px"><canvas id="mChart"></canvas></div></div>
-  ${(d.codes&&Object.keys(d.codes).length>0)?`<div class="card"><div class="card-t">PSA Code breakdown (A1–A8) — ${mk}</div><div style="position:relative;width:100%;height:260px"><canvas id="psaCodeMonth"></canvas></div></div>`:''}
+  ${(d.codes&&Object.keys(d.codes).length>0)?`<div class="card"><div class="card-t">KP Code breakdown (A1–A8) — ${mk}</div><div style="position:relative;width:100%;height:260px"><canvas id="psaCodeMonth"></canvas></div></div>`:''}
   <div class="card"><div class="card-t">Team breakdown — weekly detail</div><div class="tw"><table id="mtbl"></table></div></div>`;
 
   dc('mChart');
@@ -1618,10 +1618,10 @@ window.resetMonthOverride=function(){
 /* ============== EXPORT ============== */
 window.exportCsv=function(){
   const rows=[];
-  rows.push(['OT Dashboard — '+(dept==='PSA'?'PSA Teams':'LL Categories'),'Generated '+new Date().toISOString()]);
+  rows.push(['OT Dashboard — '+(dept==='PSA'?'KP Teams':'LL Categories'),'Generated '+new Date().toISOString()]);
   rows.push([]);
   if(dept==='PSA'){
-    rows.push(['PSA Summary','',...PSA_MONTHS,'Grand Total']);
+    rows.push(['KP Summary','',...PSA_MONTHS,'Grand Total']);
     [...TEAMS].sort((a,b)=>teamAllPSA(b.code)-teamAllPSA(a.code)).forEach(t=>{
       rows.push([t.name,t.airlines,...PSA_MONTHS.map(mk=>fmtH(tmTotal(mk,t.code))),fmtH(teamAllPSA(t.code))]);
     });
@@ -1774,7 +1774,7 @@ function applyServerData(srv){
     }
     if(srv.PSA && typeof srv.PSA==='object' && !srv.PSA._error){
       const np=applyLivePSA(srv.PSA);
-      if(np)summary.push('PSA OT '+np+' เดือน');
+      if(np)summary.push('KP OT '+np+' เดือน');
     }
     window.LAST_FLIGHTS_RAW = srv.Flights;
     if(srv.Flights && !srv.Flights._error){
