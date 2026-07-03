@@ -1761,14 +1761,26 @@ function loadOverrides(){
 function applyLivePSA(psa){
   if(!psa||typeof psa!=='object')return 0;
   const hm=min=>{const h=Math.floor((min||0)/60),x=Math.round((min||0)%60);return h+':'+String(x).padStart(2,'0');};
-  let n=0;
+  let n=0,added=0;
   Object.keys(psa).forEach(mk=>{
     if(mk.charAt(0)==='_')return;
     const m=psa[mk]; if(!m||typeof m!=='object')return;
-    const rec=PSA_DATA[mk]; if(!rec)return;            // existing months only
+    let rec=PSA_DATA[mk];
+    if(!rec){
+      // New month appearing in the sheet — add it automatically (only once it
+      // actually carries OT, so empty future months don't spawn blank tabs).
+      const total=m.teams?Object.keys(m.teams).reduce((s,t)=>s+(m.teams[t]||[]).reduce((a,b)=>a+(b||0),0),0):0;
+      if(total<=0)return;
+      const wl=(m.weekLabels&&m.weekLabels.length===4)
+        ? m.weekLabels.map((w,i)=>'W'+(i+1)+': '+String(w).replace(/\s*20\d{2}\s*$/,'').trim())
+        : ['W1','W2','W3','W4'];
+      rec={weeks:wl,flightCounts:[0,0,0,0],teams:{},codes:{}};
+      TEAMS.forEach(t=>{rec.teams[t.code]={hours:['0:00','0:00','0:00','0:00'],flights:[0,0,0,0]};});
+      PSA_DATA[mk]=rec; added++;
+    }
     if(m.teams){
       Object.keys(m.teams).forEach(tc=>{
-        if(!rec.teams[tc])return;
+        if(!rec.teams[tc])rec.teams[tc]={hours:['0:00','0:00','0:00','0:00'],flights:[0,0,0,0]};
         const mins=m.teams[tc]||[];
         rec.teams[tc].hours=[0,1,2,3].map(i=>hm(mins[i]||0));
       });
@@ -1780,6 +1792,18 @@ function applyLivePSA(psa){
     }
     n++;
   });
+  if(added){
+    // Rebuild the month list (sorted, months with OT) and grow the manpower
+    // tables + month colours so the new month renders and its headcount slot
+    // exists (carried from the prior month until applyLiveManpower fills it).
+    const sorted=buildMonthList(PSA_DATA).filter(k=>{const d=PSA_DATA[k];return d&&d.teams&&Object.keys(d.teams).some(t=>d.teams[t].hours.some(h=>toMin(h)>0));});
+    if(sorted.length){PSA_MONTHS.length=0;sorted.forEach(k=>PSA_MONTHS.push(k));}
+    [MANPOWER_DEPT,MANPOWER_TEAM,MANPOWER_LL_POSITION,MANPOWER_LL_TEAM].forEach(obj=>Object.keys(obj).forEach(k=>{const a=obj[k];while(a.length<PSA_MONTHS.length)a.push(a[a.length-1]);}));
+    while(MCOLS.length<PSA_MONTHS.length)MCOLS.push(MCOLS[MCOLS.length-1]);
+    MANPOWER_DEPT.PSA=PSA_MONTHS.map((_,i)=>PSA_TEAMS.reduce((s,c)=>s+(MANPOWER_TEAM[c][i]||0),0));
+    MANPOWER_DEPT.LP =PSA_MONTHS.map((_,i)=>LP_TEAMS.reduce((s,c)=>s+(MANPOWER_TEAM[c][i]||0),0));
+    MANPOWER_DEPT.LL =PSA_MONTHS.map((_,i)=>LL_TEAMS.reduce((s,c)=>s+(MANPOWER_LL_TEAM[c][i]||0),0));
+  }
   return n;
 }
 
