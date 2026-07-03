@@ -22,6 +22,7 @@
 const OT_LL_FILE_ID      = '1hUzdm-CPbGrotU_CwG86C5004dCSV_Gguv_cHfLOLDA';
 const OT_YEARLY_FILE_ID  = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 const FLIGHT_FEED_FILE_ID= '1Y3ft-vkHQ5Rm2LVmq1Zz_2j8n5T8wLgCJtdBKhqfBAA';
+const MANPOWER_FILE_ID   = '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8';  // Pax Manpower roster
 const PSA_SHEET_INDEX    = 4;       // "ชีต 5" = index 4 (0-based) — แก้ถ้าไม่ตรง
 const CACHE_TTL_SEC      = 600;     // cache 10 นาที ลด Sheets API calls
 const CACHE_KEY          = 'OT_ALL_V3';
@@ -95,9 +96,10 @@ function getAllData() {
     } catch (e) {}
   }
   const data = {
-    LL:      getLLData_(),
-    PSA:     getPSAData_(),
-    Flights: getFlightData_(),
+    LL:       getLLData_(),
+    PSA:      getPSAData_(),
+    Flights:  getFlightData_(),
+    Manpower: getManpowerData_(),
     fetchedAt: new Date().toISOString(),
     cached:  false,
   };
@@ -108,6 +110,67 @@ function getAllData() {
 function clearCache() {
   CacheService.getScriptCache().remove(CACHE_KEY);
   return { ok: true };
+}
+
+// ============= Manpower (headcount) =============
+// Map a roster "ทีม" label to the dashboard headcount key. Returns a
+// MANPOWER_TEAM key (EK, SQ, …, PORTER, PVT, PORTERSIGN, ADMINDOC, OFFICE) or a
+// MANPOWER_LL_TEAM key ('Lost & Found', 'Porter LL', 'Admin LL'), else null.
+function manpowerTeamKey_(label) {
+  const s = String(label || '').trim();
+  if (!s) return null;
+  const up = s.toUpperCase().replace(/\s+/g, ' ');
+  if (up.indexOf('LOST') >= 0 && up.indexOf('FOUND') >= 0) return 'Lost & Found';
+  if (up === 'PORTER LL') return 'Porter LL';
+  if (up === 'ADMIN LL')  return 'Admin LL';
+  if (up === 'ADMIN PORTER') return null;                 // not a dashboard team
+  if (up.indexOf('CHINA') >= 0)   return 'CHN';
+  if (up.indexOf('CHARTER') >= 0) return 'CHARTER';
+  if (up === 'PVT') return 'PVT';
+  if (up === 'PG')  return 'PG';
+  if (up === 'PORTER') return 'PORTER';
+  if (up.indexOf('CREWSIGN') >= 0 || (up.indexOf('PORTER') >= 0 && up.indexOf('CREW') >= 0)) return 'PORTERSIGN';
+  if (up.indexOf('ADMIN') >= 0 && up.indexOf('DOC') >= 0) return 'ADMINDOC';
+  if (up === 'OFFICE') return 'OFFICE';
+  if (s.indexOf('/') >= 0) {
+    const first = s.split('/')[0].trim().toUpperCase();
+    if (['EK','SQ','EY','TR','WY','JQ','TK','KC','QR','AK','SU','SV'].indexOf(first) >= 0) return first;
+  }
+  return null;
+}
+
+// Count active employees per team across the whole Pax Manpower roster
+// (layout-agnostic: any row with a 6-digit employee ID + a recognisable team
+// label counts once; rows flagged resign/inactive are skipped; IDs are
+// de-duplicated per team so repeated sections/tabs don't double-count).
+function getManpowerData_() {
+  try {
+    const ss = SpreadsheetApp.openById(MANPOWER_FILE_ID);
+    const perTeam = {};   // teamKey -> { empId: 1 }
+    ss.getSheets().forEach(sh => {
+      let vals;
+      try { vals = sh.getDataRange().getValues(); } catch (e) { return; }
+      vals.forEach(row => {
+        let empId = null, team = null;
+        for (let c = 0; c < row.length; c++) {
+          const v = String(row[c] == null ? '' : row[c]).trim();
+          if (!empId && /^\d{6,}$/.test(v)) empId = v;
+          if (!team) { const k = manpowerTeamKey_(v); if (k) team = k; }
+        }
+        if (!empId || !team) return;
+        const rowStr = row.map(x => String(x == null ? '' : x)).join('|').toLowerCase();
+        if (/resign|inactive|ลาออก|terminat|พ้นสภาพ/.test(rowStr)) return;
+        if (!perTeam[team]) perTeam[team] = {};
+        perTeam[team][empId] = 1;
+      });
+    });
+    const teams = {};
+    Object.keys(perTeam).forEach(t => { teams[t] = Object.keys(perTeam[t]).length; });
+    if (Object.keys(teams).length === 0) return { _error: 'Manpower: ไม่พบ roster (รหัสพนักงาน + ทีม)' };
+    return { teams: teams, at: new Date().toISOString() };
+  } catch (e) {
+    return { _error: String(e) };
+  }
 }
 
 // ============= Helpers =============

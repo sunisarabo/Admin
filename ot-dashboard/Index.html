@@ -1786,6 +1786,26 @@ function applyLivePSA(psa){
   return n;
 }
 
+// Apply the live roster headcount (getManpowerData_) onto the latest month.
+// The roster is a current snapshot, so it updates the last month's per-team
+// counts (KP/LP via MANPOWER_TEAM, LL via MANPOWER_LL_TEAM) and recomputes the
+// department totals. Teams the roster doesn't report keep their prior value.
+function applyLiveManpower(mp){
+  if(!mp||typeof mp!=='object'||mp._error||!mp.teams)return 0;
+  const idx=PSA_MONTHS.length-1; let n=0;
+  Object.keys(mp.teams).forEach(t=>{
+    const cnt=mp.teams[t]||0;
+    if(MANPOWER_TEAM[t]){MANPOWER_TEAM[t][idx]=cnt;n++;}
+    else if(MANPOWER_LL_TEAM[t]){MANPOWER_LL_TEAM[t][idx]=cnt;n++;}
+  });
+  if(n){
+    MANPOWER_DEPT.PSA=PSA_MONTHS.map((_,i)=>PSA_TEAMS.reduce((s,c)=>s+(MANPOWER_TEAM[c][i]||0),0));
+    MANPOWER_DEPT.LP =PSA_MONTHS.map((_,i)=>LP_TEAMS.reduce((s,c)=>s+(MANPOWER_TEAM[c][i]||0),0));
+    MANPOWER_DEPT.LL =PSA_MONTHS.map((_,i)=>LL_TEAMS.reduce((s,c)=>s+(MANPOWER_LL_TEAM[c][i]||0),0));
+  }
+  return n;
+}
+
 // ========== Apps Script live-fetch bridge ==========
 function applyServerData(srv){
   try{
@@ -1798,6 +1818,10 @@ function applyServerData(srv){
     if(srv.PSA && typeof srv.PSA==='object' && !srv.PSA._error){
       const np=applyLivePSA(srv.PSA);
       if(np)summary.push('KP OT '+np+' เดือน');
+    }
+    if(srv.Manpower && typeof srv.Manpower==='object' && !srv.Manpower._error){
+      const nm=applyLiveManpower(srv.Manpower);
+      if(nm)summary.push('กำลังคน '+nm+' ทีม');
     }
     window.LAST_FLIGHTS_RAW = srv.Flights;
     if(srv.Flights && !srv.Flights._error){
