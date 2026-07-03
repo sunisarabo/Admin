@@ -1306,16 +1306,13 @@ function renderPSAMonth(mk){
   <div class="card"><div class="card-t">Team breakdown — weekly detail</div><div class="tw"><table id="mtbl"></table></div></div>`;
 
   dc('mChart');
+  // Total OT per week for the active department's teams. (A1–A8 codes are a
+  // PSA-wide aggregate and can't be attributed to KP vs LP per team, so the
+  // weekly bar shows total OT rather than a wrong Regular/Holiday split.)
   const weekly=d.weeks.map((w,wi)=>curTeams().reduce((a,t)=>a+(d.teams[t.code]?toMin(d.teams[t.code].hours[wi]):0),0)/60);
-  const a7Weekly=[0,0,0,0];
-  if(d.codes&&d.codes.A7&&Array.isArray(d.codes.A7.mins)){
-    for(let i=0;i<4;i++)a7Weekly[i]=+(d.codes.A7.mins[i]/60).toFixed(1);
-  }
-  const regularWeekly=weekly.map((v,i)=>+(v-a7Weekly[i]).toFixed(1));
   CH['mChart']=new Chart(document.getElementById('mChart'),{type:'bar',
     data:{labels:d.weeks,datasets:[
-      {label:'Regular OT',data:regularWeekly,backgroundColor:'#3b82f6',borderRadius:3,yAxisID:'y',order:3,stack:'ot'},
-      {label:'Holiday OT (A7)',data:a7Weekly,backgroundColor:'#dc2626',borderRadius:3,yAxisID:'y',order:2,stack:'ot'},
+      {label:'OT Hours',data:weekly.map(v=>+v.toFixed(1)),backgroundColor:'#3b82f6',borderRadius:3,yAxisID:'y',order:2},
       {label:'Flights',data:(dept==='LP'?d.weeks.map((w,wi)=>curTeams().reduce((a,t)=>a+(d.teams[t.code]?d.teams[t.code].flights[wi]:0),0)):d.flightCounts),type:'line',borderColor:'#ef4444',borderWidth:2.5,pointRadius:5,pointBackgroundColor:'#ef4444',tension:0.4,yAxisID:'y1',order:1,fill:false}
     ]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
@@ -1840,8 +1837,17 @@ function applyServerData(srv){
       });
       if(updatedMonths>0)summary.push('Flights '+totalActive+' เที่ยว ('+updatedMonths+' เดือน, ตัด '+totalCancelled+' Cancelled)');
     }
+    // Surface any per-source errors so a partial fetch (e.g. only Flights) is
+    // visible instead of silently falling back to the offline baseline.
+    const errs=[];
+    const em=o=>o&&o._error?String(o._error).slice(0,120):'';
+    if(em(srv.PSA))errs.push('KP OT: '+em(srv.PSA));
+    if(em(srv.LL))errs.push('LL: '+em(srv.LL));
+    if(em(srv.Manpower))errs.push('กำลังคน: '+em(srv.Manpower));
+    if(em(srv.Flights))errs.push('Flights: '+em(srv.Flights));
     const cachedNote = srv.cached?' (cached)':'';
-    showNotice('✓ ดึงข้อมูลจาก Google Sheets'+cachedNote+(summary.length?' — '+summary.join(' • '):''),'success');
+    if(errs.length)showNotice('⚠ ดึงบางส่วนไม่ได้'+cachedNote+' — '+errs.join(' • ')+(summary.length?' | สำเร็จ: '+summary.join(' • '):''),'error');
+    else showNotice('✓ ดึงข้อมูลจาก Google Sheets'+cachedNote+(summary.length?' — '+summary.join(' • '):''),'success');
     document.getElementById('lastUpdate').textContent='Live: '+new Date().toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'})+cachedNote;
     go(page);
   }catch(e){
@@ -1849,19 +1855,24 @@ function applyServerData(srv){
   }
 }
 
-function fetchFromAppsScript(){
+function fetchFromAppsScript(force){
   if(typeof google==='undefined'||!google.script||!google.script.run){return false;}
   showNotice('กำลังดึงข้อมูลจาก Google Sheets...','info');
-  google.script.run
+  const run=()=>google.script.run
     .withSuccessHandler(applyServerData)
     .withFailureHandler(err=>{showNotice('✗ Apps Script: '+(err&&err.message||err),'error');})
     .getAllData();
+  // Manual refresh clears the 10-min server cache first so it always pulls fresh
+  // (skips gracefully if the deployed Code.gs has no clearCache).
+  if(force && google.script.run.clearCache){
+    google.script.run.withSuccessHandler(run).withFailureHandler(run).clearCache();
+  }else{ run(); }
   return true;
 }
 
 const _origRefreshAll = window.refreshAll;
 window.refreshAll = async function(){
-  if(fetchFromAppsScript()) return;
+  if(fetchFromAppsScript(true)) return;
   if(_origRefreshAll) return _origRefreshAll();
 };
 
@@ -1873,6 +1884,8 @@ window.refreshAll = async function(){
   window.addEventListener('beforeprint',()=>{Object.values(CH).forEach(c=>{try{c&&c.resize();}catch(e){}});});
   window.addEventListener('afterprint',()=>{Object.values(CH).forEach(c=>{try{c&&c.resize();}catch(e){}});});
   updateTemplateLabel();
+  const hs=document.getElementById('hdr-sub');
+  if(hs&&PSA_MONTHS.length)hs.textContent='KP — Overtime by team (weekly) • '+PSA_MONTHS[0]+' – '+PSA_MONTHS[PSA_MONTHS.length-1];
   renderTabs();
   renderPSAOverview();
   setupAutoRefresh();
