@@ -1,0 +1,7 @@
+# Push ONLY the Apps Script files (server code, HTML, manifest).
+# Everything else in this folder (README.md, may-2026-data.js, .clasp.json …)
+# stays out of Apps Script.
+**/**
+!appsscript.json
+!Code.gs
+!Index.html

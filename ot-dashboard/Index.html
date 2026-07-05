@@ -1,0 +1,1931 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OT Dashboard — Live</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#ffffff;--bg-soft:#f7f7f5;--bg-info:#e6f1fb;
+  --txt:#1a1a18;--txt-2:#5f5e5a;--txt-3:#888780;--txt-info:#185fa5;
+  --br:rgba(0,0,0,0.12);--br-2:rgba(0,0,0,0.22);
+  --r-md:8px;--r-lg:12px;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',sans-serif;
+  --c-psa:#3b82f6;--c-ll:#8b5cf6;
+  --c-LL:#8b5cf6;--c-Porter:#06b6d4;--c-Admin:#10b981;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font);background:var(--bg-soft);color:var(--txt);padding:14px;min-height:100vh;}
+.dash{max-width:1200px;margin:0 auto;}
+.header{margin-bottom:1rem;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
+.h-l h1{font-size:21px;font-weight:600;}
+.h-l p{font-size:12.5px;color:var(--txt-2);margin-top:4px;}
+.dept-toggle{display:flex;background:var(--bg);border:0.5px solid var(--br);border-radius:var(--r-md);padding:3px;gap:2px;}
+.dept-btn{padding:7px 18px;border-radius:6px;border:none;background:transparent;cursor:pointer;color:var(--txt-2);font-size:13px;font-weight:500;font-family:var(--font);transition:all .15s;}
+.dept-btn.active{color:#fff;}
+.dept-btn.active.psa{background:var(--c-psa);}
+.dept-btn.active.ll{background:var(--c-ll);}
+.dept-btn.active.lp{background:#f59e0b;}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1rem;overflow-x:auto;}
+.tab{padding:6px 14px;border-radius:var(--r-md);border:0.5px solid var(--br);font-size:12.5px;cursor:pointer;color:var(--txt-2);background:var(--bg);transition:all .12s;font-family:var(--font);white-space:nowrap;}
+.tab:hover{border-color:var(--br-2);color:var(--txt);}
+.tab.active{background:var(--bg-info);color:var(--txt-info);border-color:transparent;font-weight:500;}
+.tab.ov.active{background:#1a1a18;color:#f5f5f3;}
+.actions{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1rem;}
+.btn{padding:7px 13px;border-radius:var(--r-md);border:0.5px solid var(--br);font-size:12px;cursor:pointer;background:var(--bg);color:var(--txt);transition:all .12s;font-family:var(--font);display:inline-flex;align-items:center;gap:5px;font-weight:500;white-space:nowrap;}
+.btn:hover{border-color:var(--br-2);background:var(--bg-soft);}
+.btn.primary{background:var(--bg-info);color:var(--txt-info);border-color:#85b7eb;}
+.btn.success{background:#dcfce7;color:#15803d;border-color:#86efac;}
+.btn.warning{background:#fef3c7;color:#a16207;border-color:#fcd34d;}
+.btn[disabled]{opacity:.55;cursor:not-allowed;pointer-events:none;}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1.25rem;}
+.g5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:1rem;}
+@media(max-width:1024px){.g4,.g5{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:640px){.g4,.g5{grid-template-columns:1fr;}.header{flex-direction:column;}}
+.metric{background:var(--bg);border:0.5px solid var(--br);border-radius:var(--r-md);padding:13px 15px;}
+.metric-l{font-size:11.5px;color:var(--txt-2);margin-bottom:5px;}
+.metric-v{font-size:19px;font-weight:600;color:var(--txt);}
+.metric-s{font-size:11px;color:var(--txt-3);margin-top:3px;}
+.card{background:var(--bg);border:0.5px solid var(--br);border-radius:var(--r-lg);padding:1.15rem 1.4rem;margin-bottom:1rem;overflow:hidden;}
+.card-t{font-size:13.5px;font-weight:600;color:var(--txt);margin-bottom:13px;}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{font-size:11px;font-weight:500;color:var(--txt-2);text-align:left;padding:7px 8px;border-bottom:0.5px solid var(--br);white-space:nowrap;background:var(--bg-soft);}
+td{padding:7px 8px;border-bottom:0.5px solid var(--br);color:var(--txt);white-space:nowrap;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:var(--bg-soft);}
+.badge{font-size:10.5px;font-weight:500;padding:2px 8px;border-radius:4px;display:inline-block;}
+.tot td{font-weight:600;background:var(--bg-soft);}
+.barcell{display:flex;align-items:center;gap:8px;}
+.barbg{height:6px;border-radius:3px;background:var(--br);flex:1;min-width:50px;}
+.barfill{height:6px;border-radius:3px;}
+.leg{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:12px;font-size:11px;}
+.legitem{display:flex;align-items:center;gap:5px;color:var(--txt-2);}
+.legdot{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
+.notice{padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:1rem;display:none;}
+.notice.show{display:block;}
+.notice.info{background:var(--bg-info);color:var(--txt-info);border:0.5px solid #85b7eb;}
+.notice.success{background:#dcfce7;color:#15803d;border:0.5px solid #86efac;}
+.notice.error{background:#fee2e2;color:#b91c1c;border:0.5px solid #fca5a5;}
+.notice.warning{background:#fef3c7;color:#a16207;border:0.5px solid #fcd34d;}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid #ffffff66;border-top-color:#fff;border-radius:50%;animation:sp 0.8s linear infinite;}
+.btn .spin{border-color:#0003;border-top-color:currentColor;}
+@keyframes sp{to{transform:rotate(360deg);}}
+.upload-zone{border:2px dashed var(--br-2);border-radius:var(--r-md);padding:12px;text-align:center;background:var(--bg-soft);cursor:pointer;transition:all .12s;font-size:12px;color:var(--txt-2);margin-bottom:0.75rem;}
+.upload-zone:hover{border-color:var(--c-psa);color:var(--c-psa);}
+#editModal{display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.55);align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto;}
+#editModal.show{display:flex;}
+.edit-box{background:var(--bg);border:0.5px solid var(--br-2);border-radius:var(--r-lg);padding:22px 26px;width:100%;max-width:780px;box-shadow:0 12px 40px rgba(0,0,0,.18);}
+.edit-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:0.5px solid var(--br);}
+.edit-title{font-size:15px;font-weight:600;}
+.edit-sub{font-size:11px;color:var(--txt-2);margin-top:2px;}
+.edit-close{background:transparent;border:none;cursor:pointer;color:var(--txt-2);padding:6px;border-radius:6px;font-family:var(--font);font-size:14px;}
+.edit-close:hover{background:var(--bg-soft);color:var(--txt);}
+.edit-section{margin-bottom:14px;}
+.edit-section-t{font-size:11.5px;font-weight:600;color:var(--txt-2);margin-bottom:7px;text-transform:uppercase;letter-spacing:0.5px;}
+.edit-grid{display:grid;grid-template-columns:120px 1fr 1fr 1fr;gap:8px;align-items:center;margin-bottom:6px;}
+.edit-grid-h{font-size:11px;color:var(--txt-3);font-weight:500;text-align:center;padding:4px 0;}
+.edit-grid-h.lbl{text-align:left;}
+.edit-input{padding:6px 10px;border:0.5px solid var(--br);border-radius:6px;background:var(--bg);color:var(--txt);font-size:12px;font-family:var(--font);width:100%;text-align:center;}
+.edit-input:focus{outline:none;border-color:var(--c-ll);box-shadow:0 0 0 2px rgba(139,92,246,.15);}
+.edit-row-l{font-size:12px;font-weight:500;}
+.edit-actions{display:flex;justify-content:space-between;gap:10px;margin-top:18px;padding-top:14px;border-top:0.5px solid var(--br);align-items:center;flex-wrap:wrap;}
+.edit-hint{font-size:10.5px;color:var(--txt-3);flex:1;}
+.code-grid{display:grid;grid-template-columns:60px repeat(3,1fr);gap:6px;align-items:center;margin-bottom:4px;}
+.code-grid-h{font-size:10px;color:var(--txt-3);font-weight:500;text-align:center;}
+.code-grid-h.lbl{text-align:left;}
+.code-input{padding:4px 6px;border:0.5px solid var(--br);border-radius:4px;background:var(--bg);color:var(--txt);font-size:11px;font-family:var(--font);width:100%;text-align:center;}
+.code-row-l{font-size:11px;font-weight:600;color:var(--c-ll);}
+.btn-danger{background:#fee2e2;color:#b91c1c;border-color:#fca5a5;}
+.last-update{font-size:10.5px;color:var(--txt-3);margin-left:auto;align-self:center;}
+@media print{
+  @page{size:A4;margin:14mm 12mm;}
+  body{background:#fff !important;padding:0 !important;color:#000 !important;font-size:11px;}
+  .tabs,.actions,.dept-toggle,.upload-zone,.notice,#editModal,.no-print,.last-update{display:none !important;}
+  .dash{max-width:100% !important;}
+  .card{page-break-inside:avoid;break-inside:avoid;border:1px solid #cbd5e1 !important;margin-bottom:10px !important;padding:0.8rem 1rem !important;box-shadow:none !important;background:#fff !important;}
+  .header{margin-bottom:10px !important;padding-bottom:8px;border-bottom:2px solid #1e40af;}
+  .h-l h1{font-size:18px !important;color:#1e40af !important;}
+  .h-l h1 span{display:none;}
+  .h-l p{font-size:11px !important;color:#475569 !important;}
+  .header::after{content:'Generated: ' attr(data-date) ' • KP + LL Overtime Report';display:block;font-size:9px;color:#64748b;margin-top:4px;}
+  .metric{padding:8px 10px !important;}
+  .metric-l{font-size:9px !important;}
+  .metric-v{font-size:14px !important;font-weight:600 !important;}
+  .metric-s{font-size:8px !important;}
+  .card-t{font-size:12px !important;font-weight:600 !important;color:#1e40af !important;margin-bottom:8px !important;}
+  table{font-size:9px !important;border-collapse:collapse;}
+  th,td{padding:3px 5px !important;border:0.5px solid #cbd5e1 !important;}
+  th{background:#f1f5f9 !important;color:#1e293b !important;font-weight:600 !important;}
+  .badge{font-size:9px !important;padding:1px 5px !important;}
+  .leg{font-size:8px !important;gap:4px 8px !important;}
+  .card[style*="fef3c7"]{background:#fef9c3 !important;border-color:#a16207 !important;}
+  canvas{print-color-adjust:exact;-webkit-print-color-adjust:exact;}
+  *{print-color-adjust:exact;-webkit-print-color-adjust:exact;}
+}
+</style>
+</head>
+<body>
+<div class="dash">
+
+  <div class="header" id="dashHeader">
+    <div class="h-l">
+      <h1>OT Dashboard <span style="font-size:11px;font-weight:500;color:var(--txt-3);background:var(--bg-info);color:var(--txt-info);padding:2px 7px;border-radius:4px;margin-left:6px;vertical-align:middle">LIVE</span></h1>
+      <p id="hdr-sub">KP — Overtime by team (weekly) • Oct 2025 – May 2026</p>
+    </div>
+    <div class="dept-toggle">
+      <button class="dept-btn psa active" id="btnPSA" onclick="setDept('PSA')">KP</button>
+      <button class="dept-btn lp" id="btnLP" onclick="setDept('LP')">LP</button>
+      <button class="dept-btn ll" id="btnLL" onclick="setDept('LL')">LL</button>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn primary" id="btnRefreshAll" onclick="refreshAll()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      Refresh All
+    </button>
+    <button class="btn" id="btnTemplate" onclick="setTemplateId()" title="ใช้ Admin Template (long format) เป็น single source — KP + LL ในไฟล์เดียว">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+      <span id="tplLbl">Template</span>
+    </button>
+    <button class="btn" id="btnAuto" onclick="toggleAutoRefresh()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span id="autoLbl">Auto: ON · 15 min</span>
+    </button>
+    <label class="btn" style="cursor:pointer">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Upload KP Flight CSV
+      <input type="file" id="psaCsv" accept=".csv,.tsv,.txt" style="display:none" onchange="handlePsaCsv(event)">
+    </label>
+    <button class="btn" onclick="window.print()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      Print / PDF
+    </button>
+    <button class="btn" onclick="exportCsv()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      Export CSV
+    </button>
+    <button class="btn" onclick="backupJson()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+      Backup
+    </button>
+    <button class="btn success" onclick="downloadStandalone()" title="ดาวน์โหลด HTML ฉบับเดียวจบ ส่งให้ผู้บริหารดูได้">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+      Share for Exec
+    </button>
+    <span class="last-update" id="lastUpdate"></span>
+  </div>
+
+  <div class="notice" id="notice"></div>
+
+  <div class="tabs" id="tabs"></div>
+  <div id="content"></div>
+
+</div>
+
+<div id="editModal">
+  <div class="edit-box">
+    <div class="edit-head">
+      <div>
+        <div class="edit-title" id="editTitle">แก้ไขข้อมูล LL</div>
+        <div class="edit-sub">ค่าที่แก้จะ override ข้อมูล Drive (เก็บใน browser localStorage)</div>
+      </div>
+      <button class="edit-close" onclick="closeEditForm()">✕</button>
+    </div>
+    <div id="editBody"></div>
+    <div class="edit-actions">
+      <span class="edit-hint">💾 บันทึกลง browser — กด Refresh from Drive เพื่อดึงข้อมูลใหม่</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-danger" onclick="resetMonthOverride()">รีเซ็ตเดือนนี้</button>
+        <button class="btn" onclick="closeEditForm()">ยกเลิก</button>
+        <button class="btn primary" onclick="saveEditForm()">บันทึก</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   OT DASHBOARD — LIVE ARTIFACT
+   Pulls LL data from Drive at runtime, keeps PSA hardcoded
+   ========================================================= */
+
+// ---------- Config ----------
+const OT_LL_FILE_ID = '1hUzdm-CPbGrotU_CwG86C5004dCSV_Gguv_cHfLOLDA';
+const OT_YEARLY_FILE_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
+const READ_TOOL = 'mcp__0f7a98da-c951-4e85-a7af-4276e4b462a1__read_file_content';
+const META_TOOL = 'mcp__0f7a98da-c951-4e85-a7af-4276e4b462a1__get_file_metadata';
+const AUTO_REFRESH_INTERVAL_MIN = 15;
+const VISIBILITY_REFRESH_THRESHOLD_MS = 2*60*1000;
+
+const MONTH_ORDER = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTH_ABBR = {January:'Jan',February:'Feb',March:'Mar',April:'Apr',May:'May',June:'Jun',July:'Jul',August:'Aug',September:'Sep',October:'Oct',November:'Nov',December:'Dec'};
+const LL_CATS = [{code:'LL',color:'#8b5cf6'},{code:'Porter',color:'#06b6d4'},{code:'Admin',color:'#10b981'}];
+const LL_CODES = ['A1','A2','A3','A4','A5','A6','A7','A8'];
+const LL_CODE_COLORS = ['#dc2626','#ea580c','#eab308','#22c55e','#10b981','#06b6d4','#8b5cf6','#ec4899'];
+const TRENDCOLORS = ['#dc2626','#ea580c','#f97316','#eab308','#22c55e','#10b981','#14b8a6','#06b6d4','#0ea5e9','#3b82f6','#6366f1','#8b5cf6','#d946ef','#ec4899','#f43f5e','#a855f7'];
+
+// ---------- PSA Teams ----------
+const TEAMS = [
+  {code:'EK',name:'Team EK',airlines:'EK/UO/FY/6B/BY',color:'#dc2626'},
+  {code:'SQ',name:'Team SQ',airlines:'SQ/CX/LY',color:'#ea580c'},
+  {code:'EY',name:'Team EY',airlines:'EY/AY/DV',color:'#f97316'},
+  {code:'TR',name:'Team TR',airlines:'TR/QP/6E',color:'#eab308'},
+  {code:'WY',name:'Team WY',airlines:'WY/G9/9C/DK',color:'#22c55e'},
+  {code:'JQ',name:'Team JQ',airlines:'JQ/IT/IX/AI/N0',color:'#10b981'},
+  {code:'TK',name:'Team TK',airlines:'TK/VJ/SG/HY/OD',color:'#14b8a6'},
+  {code:'KC',name:'Team KE',airlines:'KE/KC/LJ/OZ/NO/AF',color:'#06b6d4'},
+  {code:'QR',name:'Team QR',airlines:'QR/MH/OM/DE',color:'#0ea5e9'},
+  {code:'AK',name:'Team AK',airlines:'AK/QZ/8M',color:'#3b82f6'},
+  {code:'SU',name:'Team SU',airlines:'SU/W5/B2',color:'#6366f1'},
+  {code:'CHN',name:'Team CHN',airlines:'3U/9H/AQ/CA/CZ/FM/HU/HO/HX/MU',color:'#8b5cf6'},
+  {code:'CHARTER',name:'Team CHARTER',airlines:'ZF/EO/WZ/N4/G2/LO/HH/H4/S7/C6',color:'#d946ef'},
+  {code:'SV',name:'Team SV/WK',airlines:'SV/WK/KA',color:'#ec4899'},
+  {code:'PG',name:'Team PG',airlines:'PG',color:'#f43f5e'},
+  {code:'PVT',name:'Team PVT',airlines:'PVT',color:'#a855f7'},
+  {code:'ADMINDOC',name:'Admin Doc',airlines:'ADMIN DOC',color:'#64748b'},
+  {code:'PORTER',name:'Porter',airlines:'PORTER',color:'#475569'},
+  {code:'PORTERSIGN',name:'Porter Crewsign',airlines:'Porter Crewsign',color:'#6b7280'},
+  {code:'OFFICE',name:'Office',airlines:'OFFICE',color:'#94a3b8'},
+];
+
+// ---------- Manpower (headcount at end-of-month) ----------
+const MANPOWER_DEPT = {
+  PSA: [576, 676, 681, 689, 694, 665, 647, 682, 735],
+  LL:  [57, 73, 72, 74, 76, 76, 75, 75, 87],
+};
+// Last value of each row = June 2026, updated from the 29JUN daily team sheet
+// (teams blank in that sheet keep the prior value: PORTER, CHARTER, SV, PVT,
+// OFFICE, Porter Crewsign).
+const MANPOWER_TEAM = {
+  PORTER:    [56, 78, 78, 78, 78, 76, 76, 75, 79],
+  CHN:       [53, 53, 53, 54, 54, 51, 50, 50, 57],
+  CHARTER:   [35, 75, 90, 89, 88, 88, 88, 88, 37],
+  TR:        [43, 46, 44, 44, 44, 44, 43, 42, 45],
+  QR:        [44, 43, 41, 41, 47, 44, 41, 40, 48],
+  KC:        [39, 41, 40, 41, 41, 40, 40, 39, 39],
+  SU:        [34, 37, 36, 39, 39, 38, 36, 35, 36],
+  EK:        [37, 36, 35, 35, 35, 34, 32, 32, 32],
+  SQ:        [30, 34, 32, 33, 33, 30, 32, 31, 48],
+  EY:        [30, 34, 34, 35, 37, 33, 24, 24, 34],
+  JQ:        [28, 31, 31, 29, 29, 28, 28, 28, 30],
+  WY:        [28, 27, 29, 31, 31, 27, 24, 24, 35],
+  TK:        [25, 25, 25, 25, 25, 24, 24, 24, 28],
+  PG:        [24, 24, 23, 23, 23, 23, 24, 24, 27],
+  AK:        [20, 20, 20, 22, 22, 18, 17, 17, 19],
+  SV:        [13, 17, 16, 16, 16, 15, 15, 15, 17],
+  PVT:       [12, 16, 15, 15, 15, 15, 15, 15, 18],
+  OFFICE:    [14, 15, 14, 14, 13, 13, 14, 14, 16],
+  PORTERSIGN:[1, 14, 15, 15, 14, 14, 14, 14, 15],
+  ADMINDOC:  [10, 10, 10, 10, 10, 10, 10, 10, 11],
+};
+const MANPOWER_LL_POSITION = {
+  'Mgr':           [0, 0, 0, 1, 1, 1, 1, 1],
+  'Act.Mgr':       [1, 1, 1, 0, 0, 0, 0, 0],
+  'Admin':         [1, 2, 2, 2, 2, 2, 2, 2],
+  'Assit Mgr':     [0, 0, 1, 1, 1, 1, 1, 1],
+  'Act. Assit Mgr':[0, 0, 0, 0, 1, 1, 1, 1],
+  'Sup':           [3, 3, 4, 4, 3, 3, 3, 3],
+  'Act.Sup':       [0, 0, 0, 0, 2, 2, 2, 2],
+  'Snr':           [6, 6, 6, 7, 5, 5, 5, 5],
+  'Act.Snr':       [1, 1, 1, 0, 2, 2, 2, 2],
+  'Agent':         [29, 41, 38, 41, 41, 40, 41, 41],
+  'Porter':        [14, 17, 17, 17, 17, 17, 17, 17],
+};
+const LL_MGMT_POSITIONS = new Set(['Mgr','Assit Mgr','Act. Assit Mgr']);
+const MANPOWER_LL_TEAM = {
+  'Lost & Found': [42, 54, 53, 55, 57, 57, 56, 56, 68],
+  'Porter LL':    [14, 17, 17, 17, 17, 17, 17, 17, 17],
+  'Admin LL':     [1, 2, 2, 2, 2, 2, 2, 2, 2],
+};
+function manpowerMonth(mk, scope){
+  const idx = PSA_MONTHS.indexOf(mk);
+  if(idx<0) return 0;
+  if(scope==='PSA') return MANPOWER_DEPT.PSA[idx]||0;
+  if(scope==='LP')  return (MANPOWER_DEPT.LP&&MANPOWER_DEPT.LP[idx])||0;
+  if(scope==='LL')  return MANPOWER_DEPT.LL[idx]||0;
+  if(scope==='TOTAL') return (MANPOWER_DEPT.PSA[idx]||0)+((MANPOWER_DEPT.LP&&MANPOWER_DEPT.LP[idx])||0)+(MANPOWER_DEPT.LL[idx]||0);
+  return 0;
+}
+function manpowerTeam(team, mk){
+  const idx = PSA_MONTHS.indexOf(mk);
+  return (MANPOWER_TEAM[team] && MANPOWER_TEAM[team][idx]) || 0;
+}
+
+const PSA_MONTHS = ['Oct 2025','Nov 2025','Dec 2025','Jan 2026','Feb 2026','Mar 2026','Apr 2026','May 2026','Jun 2026'];
+const MCOLS = ['#1e40af','#2563eb','#3b82f6','#60a5fa','#93c5fd','#bfdbfe','#dbeafe','#eff6ff','#f0f9ff'];
+// Pad manpower tables to the number of PSA months by carrying the last known
+// month forward. Used for in-progress months added before their headcount is
+// finalised (e.g. Jun 2026) — replace with the real figure when available.
+[MANPOWER_DEPT, MANPOWER_TEAM, MANPOWER_LL_POSITION, MANPOWER_LL_TEAM].forEach(obj=>{
+  Object.keys(obj).forEach(k=>{const a=obj[k];while(a.length<PSA_MONTHS.length)a.push(a[a.length-1]);});
+});
+// Department headcount grouping (3 departments), computed from MANPOWER_TEAM /
+// MANPOWER_LL_TEAM so every month is consistent:
+//   PSA = passenger-service airline teams + Crewsign / Admin Doc / Office
+//   LP  = Porter + PVT
+//   LL  = Lost & Found + Porter LL + Admin LL
+const PSA_TEAMS = ['EK','SQ','EY','TR','WY','JQ','TK','KC','QR','AK','SU','CHN','CHARTER','PG','SV','PORTERSIGN','ADMINDOC','OFFICE'];
+const LP_TEAMS  = ['PORTER','PVT'];
+const LL_TEAMS  = ['Lost & Found','Porter LL','Admin LL'];
+MANPOWER_DEPT.PSA = PSA_MONTHS.map((_,i)=>PSA_TEAMS.reduce((s,t)=>s+(MANPOWER_TEAM[t][i]||0),0));
+MANPOWER_DEPT.LP  = PSA_MONTHS.map((_,i)=>LP_TEAMS.reduce((s,t)=>s+(MANPOWER_TEAM[t][i]||0),0));
+MANPOWER_DEPT.LL  = PSA_MONTHS.map((_,i)=>LL_TEAMS.reduce((s,t)=>s+(MANPOWER_LL_TEAM[t][i]||0),0));
+// Public-holiday note per month (official AOTGA 2568/2569 shift-worker calendar)
+// — shown on both PSA and LL month pages so the Holiday OT (code A7) is
+// labelled with which public holiday it covers.
+const HOLIDAYS = {
+  'Oct 2025':'Public Holidays: Mon Oct 13 (King Bhumibol Memorial Day) • Thu Oct 23 (Chulalongkorn Day)',
+  'Dec 2025':'Public Holidays: Fri Dec 5 (King Bhumibol\'s Birthday / Father\'s Day) • Wed Dec 31 (New Year\'s Eve)',
+  'Jan 2026':'Public Holiday: Thu Jan 1 (New Year\'s Day)',
+  'Mar 2026':'Public Holiday: Tue Mar 3 (Makha Bucha Day)',
+  'Apr 2026':'Public Holidays: Mon Apr 6 (Chakri Memorial Day) • Mon-Tue Apr 13-14 (Songkran)',
+  'May 2026':'Public Holiday: Fri May 1 (National Labour Day)',
+  'Jun 2026':'Public Holiday: Wed Jun 3 (H.M. Queen Suthida\'s Birthday)',
+};
+
+// ---------- PSA Data ----------
+const PSA_DATA = {
+"Oct 2025": {"weeks": ["W1: 1-7 Oct", "W2: 8-14 Oct", "W3: 15-21 Oct", "W4: 22-31 Oct"], "flightCounts": [683, 678, 690, 735], "teams": {"EK": {"hours": ["361:00", "606:00", "438:00", "759:00"], "flights": [32, 32, 32, 32]}, "SQ": {"hours": ["302:00", "644:30", "364:00", "870:30"], "flights": [47, 48, 46, 47]}, "EY": {"hours": ["385:00", "650:30", "419:30", "929:30"], "flights": [21, 21, 24, 22]}, "TR": {"hours": ["482:30", "686:30", "437:00", "1021:30"], "flights": [76, 78, 76, 77]}, "WY": {"hours": ["508:30", "661:30", "396:00", "641:30"], "flights": [37, 35, 35, 36]}, "JQ": {"hours": ["450:30", "603:00", "457:00", "844:30"], "flights": [33, 33, 34, 34]}, "TK": {"hours": ["224:00", "379:30", "245:00", "522:30"], "flights": [25, 25, 25, 25]}, "KC": {"hours": ["427:00", "706:00", "286:00", "795:00"], "flights": [44, 42, 37, 38]}, "QR": {"hours": ["604:30", "980:00", "704:30", "1510:30"], "flights": [37, 39, 39, 39]}, "AK": {"hours": ["238:00", "399:30", "205:30", "536:00"], "flights": [45, 45, 45, 44]}, "SU": {"hours": ["249:30", "458:30", "278:30", "823:30"], "flights": [30, 31, 34, 33]}, "CHN": {"hours": ["300:00", "662:30", "365:00", "1329:30"], "flights": [111, 111, 109, 110]}, "CHARTER": {"hours": ["75:30", "316:00", "91:00", "680:30"], "flights": [13, 11, 11, 12]}, "PVT": {"hours": ["40:30", "79:30", "103:30", "129:00"], "flights": [9, 2, 20, 8]}, "PG": {"hours": ["272:30", "419:30", "292:30", "534:30"], "flights": [123, 125, 123, 125]}, "SV": {"hours": ["108:30", "149:00", "112:00", "347:00"], "flights": [0, 0, 0, 0]}, "PORTER": {"hours": ["413:30", "916:00", "527:00", "1335:30"], "flights": [0, 0, 0, 0]}, "PORTERSIGN": {"hours": ["12:00", "12:00", "0:00", "36:00"], "flights": [0, 0, 0, 0]}, "ADMINDOC": {"hours": ["7:00", "95:00", "18:00", "130:30"], "flights": [0, 0, 0, 0]}, "OFFICE": {"hours": ["0:00", "63:00", "0:00", "71:00"], "flights": [0, 0, 0, 0]}}, "codes": {"A1": {"mins": [149280, 161040, 126930, 270600]}, "A2": {"mins": [135360, 145380, 119850, 217050]}, "A3": {"mins": [21810, 24570, 25620, 55110]}, "A4": {"mins": [480, 0, 780, 900]}, "A5": {"mins": [270, 810, 450, 1110]}, "A6": {"mins": [20520, 27780, 27150, 34590]}, "A7": {"mins": [0, 209700, 43620, 251490]}, "A8": {"mins": [0, 0, 0, 0]}}},
+"Nov 2025": {"weeks": ["W1: 1-7 Nov", "W2: 8-14 Nov", "W3: 15-21 Nov", "W4: 22-30 Nov"], "flightCounts": [696, 703, 698, 686], "teams": {"EK": {"hours": ["287:30", "358:30", "441:00", "527:30"], "flights": [32, 32, 32, 32]}, "SQ": {"hours": ["711:00", "548:00", "679:30", "795:00"], "flights": [47, 48, 47, 47]}, "EY": {"hours": ["506:30", "551:00", "578:30", "766:00"], "flights": [27, 27, 27, 27]}, "TR": {"hours": ["665:30", "621:30", "623:30", "908:30"], "flights": [77, 78, 77, 77]}, "WY": {"hours": ["320:00", "270:00", "345:30", "566:00"], "flights": [34, 35, 34, 34]}, "JQ": {"hours": ["446:30", "485:30", "480:00", "730:00"], "flights": [34, 34, 34, 34]}, "TK": {"hours": ["487:30", "422:00", "530:30", "661:00"], "flights": [25, 25, 25, 25]}, "KC": {"hours": ["392:00", "413:00", "459:00", "652:30"], "flights": [36, 36, 36, 36]}, "QR": {"hours": ["1044:00", "1006:00", "1008:30", "1181:00"], "flights": [39, 39, 39, 39]}, "AK": {"hours": ["319:00", "238:30", "344:30", "444:00"], "flights": [50, 50, 50, 49]}, "SU": {"hours": ["438:00", "259:30", "290:30", "266:00"], "flights": [33, 33, 33, 33]}, "CHN": {"hours": ["644:30", "548:00", "772:30", "1079:00"], "flights": [74, 76, 74, 75]}, "CHARTER": {"hours": ["400:30", "307:30", "535:30", "462:30"], "flights": [16, 16, 16, 16]}, "PVT": {"hours": ["39:30", "40:30", "93:00", "47:00"], "flights": [5, 4, 4, 3]}, "PG": {"hours": ["259:00", "267:00", "255:00", "335:30"], "flights": [123, 124, 123, 123]}, "SV": {"hours": ["184:30", "157:00", "152:30", "178:00"], "flights": [0, 0, 0, 0]}, "PORTER": {"hours": ["663:30", "706:30", "695:30", "923:00"], "flights": [0, 0, 0, 0]}, "PORTERSIGN": {"hours": ["9:30", "0:00", "17:30", "24:30"], "flights": [0, 0, 0, 0]}, "ADMINDOC": {"hours": ["33:00", "26:00", "32:00", "29:30"], "flights": [0, 0, 0, 0]}, "OFFICE": {"hours": ["20:00", "49:00", "28:30", "25:00"], "flights": [0, 0, 0, 0]}}, "codes": {"A1": {"mins": [217830, 215850, 243240, 297270]}, "A2": {"mins": [198480, 180390, 196860, 265320]}, "A3": {"mins": [46260, 34770, 46680, 59370]}, "A4": {"mins": [240, 540, 240, 660]}, "A5": {"mins": [420, 420, 810, 0]}, "A6": {"mins": [9060, 4530, 13830, 13050]}, "A7": {"mins": [0, 0, 120, 420]}, "A8": {"mins": [0, 0, 0, 0]}}},
+"Dec 2025": {"weeks": ["W1: 1-7 Dec", "W2: 8-14 Dec", "W3: 15-21 Dec", "W4: 22-31 Dec"], "flightCounts": [833, 856, 856, 901], "teams": {"EK": {"hours": ["700:30", "536:00", "478:00", "940:30"], "flights": [33, 33, 33, 33]}, "SQ": {"hours": ["955:00", "688:30", "723:30", "1351:00"], "flights": [56, 57, 57, 57]}, "EY": {"hours": ["830:00", "625:30", "659:30", "1227:30"], "flights": [44, 46, 46, 46]}, "TR": {"hours": ["1204:30", "611:30", "650:30", "1244:30"], "flights": [80, 82, 82, 82]}, "WY": {"hours": ["807:00", "497:00", "634:00", "1067:30"], "flights": [52, 53, 53, 53]}, "JQ": {"hours": ["941:00", "732:00", "697:00", "1078:30"], "flights": [38, 40, 40, 40]}, "TK": {"hours": ["600:30", "616:00", "694:00", "1034:00"], "flights": [31, 32, 32, 32]}, "KC": {"hours": ["800:00", "524:30", "500:00", "960:30"], "flights": [39, 40, 40, 40]}, "QR": {"hours": ["1210:00", "1050:30", "1049:30", "1663:30"], "flights": [44, 45, 45, 45]}, "AK": {"hours": ["445:30", "288:30", "244:00", "434:30"], "flights": [52, 53, 53, 54]}, "SU": {"hours": ["860:30", "381:30", "342:00", "816:00"], "flights": [36, 37, 37, 37]}, "CHN": {"hours": ["1559:30", "1246:30", "1258:30", "2142:00"], "flights": [147, 152, 152, 152]}, "CHARTER": {"hours": ["816:00", "545:30", "381:30", "680:00"], "flights": [38, 40, 40, 40]}, "PVT": {"hours": ["227:30", "67:00", "93:30", "208:30"], "flights": [7, 9, 9, 8]}, "PG": {"hours": ["589:00", "338:30", "353:00", "576:00"], "flights": [136, 137, 137, 137]}, "SV": {"hours": ["278:00", "190:00", "201:30", "412:00"], "flights": [0, 0, 0, 0]}, "PORTER": {"hours": ["1720:30", "950:30", "963:00", "1864:30"], "flights": [0, 0, 0, 0]}, "PORTERSIGN": {"hours": ["162:30", "20:00", "57:30", "213:00"], "flights": [0, 0, 0, 0]}, "ADMINDOC": {"hours": ["109:30", "40:00", "46:00", "126:30"], "flights": [0, 0, 0, 0]}, "OFFICE": {"hours": ["84:30", "37:00", "26:00", "99:30"], "flights": [0, 0, 0, 0]}}, "codes": {"A1": {"mins": [293670, 299910, 303480, 454410]}, "A2": {"mins": [243780, 243120, 221190, 351870]}, "A3": {"mins": [50670, 44160, 72180, 77400]}, "A4": {"mins": [1140, 180, 240, 1410]}, "A5": {"mins": [420, 600, 0, 0]}, "A6": {"mins": [15420, 5610, 5700, 7110]}, "A7": {"mins": [288990, 5610, 360, 196200]}, "A8": {"mins": [0, 0, 0, 0]}}},
+"Jan 2026": {"weeks": ["W1: 1-7 Jan", "W2: 8-14 Jan", "W3: 15-21 Jan", "W4: 22-31 Jan"], "flightCounts": [857, 860, 860, 840], "teams": {"EK": {"hours": ["861:00", "538:00", "577:30", "760:00"], "flights": [35, 35, 35, 35]}, "SQ": {"hours": ["1120:30", "638:30", "703:00", "987:00"], "flights": [60, 60, 60, 60]}, "EY": {"hours": ["1052:00", "736:00", "621:30", "1036:00"], "flights": [47, 47, 47, 47]}, "TR": {"hours": ["1090:00", "759:30", "717:30", "980:30"], "flights": [73, 73, 73, 73]}, "WY": {"hours": ["906:00", "602:30", "589:00", "989:00"], "flights": [53, 53, 53, 53]}, "JQ": {"hours": ["863:00", "551:30", "613:00", "734:30"], "flights": [40, 40, 40, 40]}, "TK": {"hours": ["808:00", "541:30", "535:00", "575:30"], "flights": [47, 47, 47, 47]}, "KC": {"hours": ["1003:30", "589:30", "517:00", "781:30"], "flights": [33, 33, 33, 33]}, "QR": {"hours": ["1513:00", "1132:30", "1148:30", "1588:00"], "flights": [61, 61, 61, 61]}, "AK": {"hours": ["560:00", "245:00", "265:30", "314:30"], "flights": [53, 53, 53, 54]}, "SU": {"hours": ["754:30", "617:30", "360:30", "551:00"], "flights": [37, 37, 37, 37]}, "CHN": {"hours": ["1850:30", "1090:30", "1028:00", "1606:30"], "flights": [117, 120, 120, 119]}, "CHARTER": {"hours": ["575:30", "131:30", "315:00", "356:30"], "flights": [56, 56, 56, 56]}, "PVT": {"hours": ["352:30", "125:30", "86:00", "153:30"], "flights": [10, 9, 9, 9]}, "PG": {"hours": ["563:00", "291:30", "292:30", "394:30"], "flights": [135, 136, 136, 136]}, "SV": {"hours": ["445:00", "252:00", "251:00", "338:30"], "flights": [0, 0, 0, 0]}, "PORTER": {"hours": ["1847:30", "823:00", "787:00", "988:00"], "flights": [0, 0, 0, 0]}, "PORTERSIGN": {"hours": ["302:00", "136:00", "139:30", "189:00"], "flights": [0, 0, 0, 0]}, "ADMINDOC": {"hours": ["177:00", "52:30", "36:30", "69:30"], "flights": [0, 0, 0, 0]}, "OFFICE": {"hours": ["93:00", "39:00", "33:00", "27:30"], "flights": [0, 0, 0, 0]}}, "codes": {"A1": {"mins": [334230, 298470, 292200, 401580]}, "A2": {"mins": [250980, 224760, 228540, 319050]}, "A3": {"mins": [63990, 61470, 49860, 70500]}, "A4": {"mins": [1710, 300, 690, 0]}, "A5": {"mins": [1230, 480, 0, 390]}, "A6": {"mins": [8190, 7290, 4860, 13140]}, "A7": {"mins": [343920, 840, 840, 600]}, "A8": {"mins": [0, 0, 0, 0]}}},
+"Feb 2026": {"weeks": ["W1: 1-7 Feb", "W2: 8-14 Feb", "W3: 15-21 Feb", "W4: 22-28 Feb"], "flightCounts": [885, 890, 905, 860], "teams": {"EK": {"hours": ["556:30", "589:30", "567:30", "553:00"], "flights": [35, 35, 35, 34]}, "SQ": {"hours": ["665:30", "651:30", "716:00", "547:00"], "flights": [57, 57, 57, 57]}, "EY": {"hours": ["700:00", "786:00", "729:00", "720:00"], "flights": [48, 48, 48, 47]}, "TR": {"hours": ["707:00", "662:30", "653:00", "592:00"], "flights": [73, 73, 73, 73]}, "WY": {"hours": ["726:00", "826:30", "879:30", "687:00"], "flights": [66, 66, 66, 66]}, "JQ": {"hours": ["415:00", "407:30", "521:30", "441:00"], "flights": [37, 37, 37, 37]}, "TK": {"hours": ["485:00", "531:30", "377:00", "339:00"], "flights": [44, 44, 44, 44]}, "KC": {"hours": ["569:30", "517:00", "504:30", "471:30"], "flights": [38, 38, 38, 38]}, "QR": {"hours": ["1055:00", "1054:00", "867:30", "709:00"], "flights": [60, 60, 60, 60]}, "AK": {"hours": ["186:00", "305:00", "318:00", "374:00"], "flights": [53, 53, 54, 54]}, "SU": {"hours": ["285:00", "341:30", "189:00", "284:00"], "flights": [37, 37, 37, 37]}, "CHN": {"hours": ["1371:00", "1475:00", "1719:00", "1540:30"], "flights": [154, 160, 165, 169]}, "CHARTER": {"hours": ["173:30", "207:30", "221:30", "180:00"], "flights": [54, 54, 54, 54]}, "PVT": {"hours": ["137:00", "94:00", "56:00", "101:00"], "flights": [9, 9, 9, 9]}, "PG": {"hours": ["295:30", "277:00", "265:00", "235:30"], "flights": [123, 123, 124, 125]}, "SV": {"hours": ["221:00", "201:30", "129:00", "88:00"], "flights": [0, 0, 0, 0]}, "PORTER": {"hours": ["865:30", "809:00", "710:00", "674:00"], "flights": [0, 0, 0, 0]}, "PORTERSIGN": {"hours": ["279:30", "268:00", "353:30", "344:30"], "flights": [0, 0, 0, 0]}, "ADMINDOC": {"hours": ["43:00", "61:30", "59:00", "76:30"], "flights": [0, 0, 0, 0]}, "OFFICE": {"hours": ["34:00", "43:00", "6:00", "15:30"], "flights": [0, 0, 0, 0]}}, "codes": {"A1": {"mins": [288060, 284460, 293100, 241620]}, "A2": {"mins": [231840, 241830, 232590, 245340]}, "A3": {"mins": [54690, 68970, 58710, 39330]}, "A4": {"mins": [0, 390, 120, 1320]}, "A5": {"mins": [0, 660, 420, 780]}, "A6": {"mins": [10740, 8880, 4890, 8790]}, "A7": {"mins": [900, 1350, 660, 1200]}, "A8": {"mins": [0, 0, 0, 0]}}},
+"Mar 2026": {"weeks": ["W1: 1-7 Mar", "W2: 8-14 Mar", "W3: 15-21 Mar", "W4: 22-31 Mar"], "flightCounts": [859, 723, 709, 889], "teams": {"EK": {"hours": ["406:00", "251:30", "332:00", "615:30"], "flights": [0, 0, 0, 0]}, "SQ": {"hours": ["690:30", "509:30", "472:30", "735:30"], "flights": [60, 58, 59, 83]}, "EY": {"hours": ["532:30", "332:30", "394:30", "707:30"], "flights": [50, 50, 48, 59]}, "TR": {"hours": ["741:00", "480:00", "448:30", "854:00"], "flights": [73, 79, 74, 106]}, "WY": {"hours": ["156:00", "100:30", "207:30", "394:30"], "flights": [53, 50, 51, 68]}, "JQ": {"hours": ["723:30", "420:00", "413:30", "736:00"], "flights": [38, 37, 36, 54]}, "TK": {"hours": ["562:00", "374:30", "360:00", "478:00"], "flights": [47, 48, 47, 58]}, "KC": {"hours": ["770:00", "438:30", "375:30", "670:30"], "flights": [33, 34, 34, 51]}, "QR": {"hours": ["490:00", "165:30", "53:00", "107:30"], "flights": [61, 61, 63, 89]}, "AK": {"hours": ["484:00", "271:30", "176:00", "389:30"], "flights": [51, 56, 58, 82]}, "SU": {"hours": ["396:00", "110:00", "59:30", "167:30"], "flights": [73, 76, 75, 108]}, "CHN": {"hours": ["1023:00", "271:00", "352:00", "714:30"], "flights": [136, 120, 106, 128]}, "CHARTER": {"hours": ["420:30", "187:00", "150:30", "205:00"], "flights": [0, 0, 0, 0]}, "PVT": {"hours": ["216:00", "74:00", "54:00", "81:00"], "flights": [10, 14, 7, 15]}, "PG": {"hours": ["369:00", "205:30", "225:00", "301:30"], "flights": [137, 133, 130, 191]}, "SV": {"hours": ["245:00", "59:00", "73:00", "150:30"], "flights": [0, 0, 0, 0]}, "PORTER": {"hours": ["1407:00", "682:30", "565:00", "897:00"], "flights": [0, 0, 0, 0]}, "PORTERSIGN": {"hours": ["346:30", "205:30", "164:30", "248:30"], "flights": [0, 0, 0, 0]}, "ADMINDOC": {"hours": ["137:00", "88:30", "62:30", "64:30"], "flights": [0, 0, 0, 0]}, "OFFICE": {"hours": ["64:00", "16:00", "9:00", "15:00"], "flights": [0, 0, 0, 0]}}, "codes": {"A1": {"mins": [114690, 89370, 102360, 157800]}, "A2": {"mins": [215610, 173970, 185880, 339750]}, "A3": {"mins": [5580, 6060, 3600, 5580]}, "A4": {"mins": [270, 2430, 480, 2550]}, "A5": {"mins": [1020, 300, 1560, 2940]}, "A6": {"mins": [0, 4890, 3000, 3390]}, "A7": {"mins": [273600, 1020, 0, 0]}, "A8": {"mins": [0, 36540, 0, 0]}}},
+"Apr 2026": {"weeks": ["W1: 1-7 Apr", "W2: 8-14 Apr", "W3: 15-21 Apr", "W4: 22-30 Apr"], "flightCounts": [650, 637, 616, 765], "teams": {"EK": {"hours": ["518:30", "731:30", "471:30", "511:00"], "flights": [34, 32, 33, 40]}, "SQ": {"hours": ["630:30", "722:30", "523:30", "557:00"], "flights": [48, 48, 50, 64]}, "EY": {"hours": ["633:30", "751:30", "626:30", "836:00"], "flights": [25, 24, 26, 36]}, "TR": {"hours": ["543:30", "762:00", "466:30", "732:00"], "flights": [77, 76, 76, 98]}, "WY": {"hours": ["342:00", "348:30", "160:00", "332:00"], "flights": [23, 24, 18, 32]}, "JQ": {"hours": ["616:30", "797:30", "631:00", "683:30"], "flights": [43, 43, 43, 51]}, "TK": {"hours": ["295:30", "340:00", "214:00", "204:00"], "flights": [19, 19, 19, 25]}, "KC": {"hours": ["512:30", "670:00", "322:00", "237:00"], "flights": [24, 22, 21, 27]}, "QR": {"hours": ["142:00", "337:00", "195:30", "159:00"], "flights": [36, 42, 42, 45]}, "AK": {"hours": ["359:00", "469:30", "297:30", "196:00"], "flights": [51, 54, 52, 66]}, "SU": {"hours": ["168:30", "166:00", "57:00", "73:30"], "flights": [36, 32, 31, 36]}, "CHN": {"hours": ["349:00", "653:30", "330:00", "117:30"], "flights": [43, 46, 46, 67]}, "CHARTER": {"hours": ["293:30", "414:30", "247:00", "45:00"], "flights": [42, 33, 35, 25]}, "PVT": {"hours": ["84:30", "181:00", "84:00", "11:30"], "flights": [12, 6, 4, 8]}, "PG": {"hours": ["207:00", "241:00", "187:00", "254:30"], "flights": [130, 129, 118, 141]}, "SV": {"hours": ["162:30", "236:00", "167:00", "63:30"], "flights": [2, 2, 2, 3]}, "PORTER": {"hours": ["1325:30", "2046:00", "1434:00", "754:00"], "flights": [0, 0, 0, 0]}, "PORTERSIGN": {"hours": ["264:30", "244:00", "217:00", "135:00"], "flights": [0, 0, 0, 0]}, "ADMINDOC": {"hours": ["105:30", "188:30", "146:30", "86:00"], "flights": [0, 0, 0, 0]}, "OFFICE": {"hours": ["9:30", "39:00", "34:00", "4:00"], "flights": [0, 0, 0, 0]}}, "codes": {"A1": {"mins": [75000, 72120, 62430, 107190]}, "A2": {"mins": [178830, 194100, 174930, 232530]}, "A3": {"mins": [1470, 930, 2430, 1230]}, "A4": {"mins": [150, 120, 3270, 600]}, "A5": {"mins": [360, 1980, 1740, 3180]}, "A6": {"mins": [13950, 19500, 5940, 14310]}, "A7": {"mins": [184050, 331620, 157950, 480]}, "A8": {"mins": [0, 0, 0, 0]}}},
+"May 2026": {"weeks": ["W1: 1-7 May", "W2: 8-14 May", "W3: 15-21 May", "W4: 22-31 May"], "flightCounts": [560, 517, 504, 732], "teams": {"EK": {"hours": ["363:00", "126:00", "111:00", "232:30"], "flights": [25, 24, 23, 36]}, "SQ": {"hours": ["669:00", "332:00", "291:00", "533:30"], "flights": [50, 49, 47, 71]}, "EY": {"hours": ["737:00", "681:00", "441:30", "764:30"], "flights": [27, 28, 27, 36]}, "TR": {"hours": ["747:30", "328:30", "312:30", "717:00"], "flights": [76, 74, 75, 108]}, "WY": {"hours": ["491:00", "112:30", "15:30", "64:00"], "flights": [37, 19, 11, 32]}, "JQ": {"hours": ["459:00", "233:00", "221:30", "491:00"], "flights": [31, 29, 29, 44]}, "TK": {"hours": ["323:30", "101:30", "137:30", "178:30"], "flights": [17, 16, 16, 29]}, "KC": {"hours": ["492:00", "101:30", "39:00", "136:30"], "flights": [21, 21, 21, 28]}, "QR": {"hours": ["200:30", "15:00", "12:00", "32:30"], "flights": [31, 29, 27, 40]}, "AK": {"hours": ["329:30", "154:00", "155:30", "249:00"], "flights": [47, 50, 49, 73]}, "SU": {"hours": ["166:00", "24:00", "15:00", "24:00"], "flights": [25, 26, 23, 29]}, "CHN": {"hours": ["582:30", "59:30", "70:30", "24:00"], "flights": [41, 28, 26, 30]}, "CHARTER": {"hours": ["299:30", "15:00", "8:30", "10:00"], "flights": [11, 10, 12, 15]}, "PVT": {"hours": ["133:30", "18:00", "12:00", "0:30"], "flights": [6, 5, 9, 6]}, "PG": {"hours": ["478:30", "247:00", "187:00", "346:00"], "flights": [110, 109, 109, 155]}, "SV": {"hours": ["155:00", "2:30", "0:30", "10:30"], "flights": [1, 0, 0, 0]}, "PORTER": {"hours": ["1385:00", "599:00", "530:30", "696:00"], "flights": [0, 0, 0, 0]}, "PORTERSIGN": {"hours": ["251:30", "94:30", "49:30", "169:00"], "flights": [0, 0, 0, 0]}, "ADMINDOC": {"hours": ["152:00", "50:00", "62:30", "44:00"], "flights": [0, 0, 0, 0]}, "OFFICE": {"hours": ["9:00", "1:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}}, "codes": {"A1": {"mins": [68790, 62280, 43590, 75630]}, "A2": {"mins": [163680, 129120, 111540, 198630]}, "A3": {"mins": [5760, 720, 900, 2010]}, "A4": {"mins": [0, 0, 720, 0]}, "A5": {"mins": [1020, 2010, 3030, 2970]}, "A6": {"mins": [10710, 3630, 0, 4140]}, "A7": {"mins": [255510, 0, 600, 0]}, "A8": {"mins": [0, 0, 0, 0]}}},
+"Jun 2026": {"weeks": ["W1: 1-7 Jun", "W2: 8-14 Jun", "W3: 15-21 Jun", "W4: 22-30 Jun"], "flightCounts": [0, 0, 0, 0], "teams": {"EK": {"hours": ["285:30", "139:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "SQ": {"hours": ["588:30", "334:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "EY": {"hours": ["526:30", "289:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "TR": {"hours": ["298:00", "312:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "WY": {"hours": ["120:00", "23:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "JQ": {"hours": ["414:00", "219:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "TK": {"hours": ["299:00", "119:00", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "KC": {"hours": ["402:00", "51:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "QR": {"hours": ["220:30", "4:00", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "AK": {"hours": ["290:00", "82:00", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "SU": {"hours": ["149:30", "3:00", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "CHN": {"hours": ["390:30", "18:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "CHARTER": {"hours": ["322:30", "0:00", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "PVT": {"hours": ["161:00", "0:00", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "PG": {"hours": ["424:30", "202:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "SV": {"hours": ["129:00", "35:30", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "PORTER": {"hours": ["1159:30", "499:00", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "PORTERSIGN": {"hours": ["209:00", "72:00", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "ADMINDOC": {"hours": ["107:00", "8:00", "0:00", "0:00"], "flights": [0, 0, 0, 0]}, "OFFICE": {"hours": ["33:00", "0:00", "0:00", "0:00"], "flights": [0, 0, 0, 0]}}, "codes": {"A1": {"mins": [36810, 34980, 0, 0]}, "A2": {"mins": [113520, 104250, 0, 0]}, "A3": {"mins": [1290, 3780, 0, 0]}, "A4": {"mins": [120, 0, 0, 0]}, "A5": {"mins": [240, 0, 0, 0]}, "A6": {"mins": [11280, 1830, 0, 0]}, "A7": {"mins": [228510, 0, 0, 0]}, "A8": {"mins": [0, 0, 0, 0]}}}
+};
+
+// ---------- LL Data (Oct-Apr = weekly; May = flat monthly-by-code) ----------
+let LL_DATA = {
+"Oct 2025": {"weeks": [{"week": "Week 01", "LL_min": 21420, "Porter_min": 7080, "Admin_min": 0, "Total_min": 28500}, {"week": "Week 02", "LL_min": 34200, "Porter_min": 5760, "Admin_min": 0, "Total_min": 39960}, {"week": "Week 03", "LL_min": 34260, "Porter_min": 15360, "Admin_min": 0, "Total_min": 49620}, {"week": "Week 04", "LL_min": 6420, "Porter_min": 1020, "Admin_min": 120, "Total_min": 7560}], "codes": {"Week 01": {"A1": {"LL_min": 1440, "Porter_min": 1080, "Admin_min": 0}, "A2": {"LL_min": 18840, "Porter_min": 4860, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 1140, "Porter_min": 1140, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 02": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 15000, "Porter_min": 2760, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 7560, "Porter_min": 2220, "Admin_min": 0}, "A7": {"LL_min": 8280, "Porter_min": 600, "Admin_min": 0}, "A8": {"LL_min": 600, "Porter_min": 180, "Admin_min": 0}}, "Week 03": {"A1": {"LL_min": 240, "Porter_min": 1440, "Admin_min": 0}, "A2": {"LL_min": 13800, "Porter_min": 5460, "Admin_min": 0}, "A3": {"LL_min": 180, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 960, "Porter_min": 540, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 19080, "Porter_min": 7920, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 04": {"A1": {"LL_min": 1680, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 19260, "Porter_min": 660, "Admin_min": 120}, "A3": {"LL_min": 180, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 1500, "Porter_min": 360, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 27000, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}}},
+"Nov 2025": {"weeks": [{"week": "Week 01", "LL_min": 16110, "Porter_min": 7980, "Admin_min": 0, "Total_min": 24090}, {"week": "Week 02", "LL_min": 18390, "Porter_min": 6900, "Admin_min": 0, "Total_min": 25290}, {"week": "Week 03", "LL_min": 17010, "Porter_min": 8400, "Admin_min": 0, "Total_min": 25410}, {"week": "Week 04", "LL_min": 27120, "Porter_min": 11820, "Admin_min": 0, "Total_min": 38940}], "codes": {"Week 01": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 15660, "Porter_min": 7980, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 270, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 180, "Porter_min": 0, "Admin_min": 0}}, "Week 02": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 17310, "Porter_min": 6900, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 1080, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 03": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 16080, "Porter_min": 8400, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 930, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 04": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 27120, "Porter_min": 11820, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}}},
+"Dec 2025": {"weeks": [{"week": "Week 01", "LL_min": 24654, "Porter_min": 17700, "Admin_min": 0, "Total_min": 42354}, {"week": "Week 02", "LL_min": 9055, "Porter_min": 10920, "Admin_min": 0, "Total_min": 21055}, {"week": "Week 03", "LL_min": 16065, "Porter_min": 12720, "Admin_min": 0, "Total_min": 29385}, {"week": "Week 04", "LL_min": 9210, "Porter_min": 5160, "Admin_min": 0, "Total_min": 14370}], "codes": {"Week 01": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 8220, "Porter_min": 8040, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 600, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 15834, "Porter_min": 9660, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 02": {"A1": {"LL_min": 0, "Porter_min": 300, "Admin_min": 480}, "A2": {"LL_min": 9055, "Porter_min": 10320, "Admin_min": 600}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 300, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 03": {"A1": {"LL_min": 0, "Porter_min": 360, "Admin_min": 600}, "A2": {"LL_min": 16065, "Porter_min": 12300, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 60, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 04": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 9210, "Porter_min": 4920, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 240, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}}},
+"Jan 2026": {"weeks": [{"week": "Week 01", "LL_min": 17162, "Porter_min": 17400, "Admin_min": 0, "Total_min": 34562}, {"week": "Week 02", "LL_min": 11940, "Porter_min": 11520, "Admin_min": 960, "Total_min": 24420}, {"week": "Week 03", "LL_min": 10830, "Porter_min": 10140, "Admin_min": 1140, "Total_min": 22110}, {"week": "Week 04", "LL_min": 23070, "Porter_min": 16260, "Admin_min": 480, "Total_min": 39810}], "codes": {"Week 01": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 10082, "Porter_min": 11820, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 120, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 6960, "Porter_min": 5580, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 02": {"A1": {"LL_min": 0, "Porter_min": 480, "Admin_min": 420}, "A2": {"LL_min": 11940, "Porter_min": 10440, "Admin_min": 540}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 300, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 300, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 03": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 10830, "Porter_min": 10140, "Admin_min": 1140}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 04": {"A1": {"LL_min": 480, "Porter_min": 840, "Admin_min": 480}, "A2": {"LL_min": 22590, "Porter_min": 15420, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}}},
+"Feb 2026": {"weeks": [{"week": "Week 01", "LL_min": 34210, "Porter_min": 23160, "Admin_min": 240, "Total_min": 57610}, {"week": "Week 02", "LL_min": 17940, "Porter_min": 12300, "Admin_min": 0, "Total_min": 30240}, {"week": "Week 03", "LL_min": 15420, "Porter_min": 10260, "Admin_min": 480, "Total_min": 26160}, {"week": "Week 04", "LL_min": 3660, "Porter_min": 2880, "Admin_min": 0, "Total_min": 6540}], "codes": {"Week 01": {"A1": {"LL_min": 250, "Porter_min": 840, "Admin_min": 0}, "A2": {"LL_min": 32700, "Porter_min": 21900, "Admin_min": 240}, "A3": {"LL_min": 1260, "Porter_min": 420, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 02": {"A1": {"LL_min": 0, "Porter_min": 420, "Admin_min": 0}, "A2": {"LL_min": 17940, "Porter_min": 11880, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 03": {"A1": {"LL_min": 480, "Porter_min": 0, "Admin_min": 480}, "A2": {"LL_min": 14940, "Porter_min": 10260, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 04": {"A1": {"LL_min": 0, "Porter_min": 360, "Admin_min": 0}, "A2": {"LL_min": 3660, "Porter_min": 2520, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}}},
+"Mar 2026": {"weeks": [{"week": "Week 01", "LL_min": 34950, "Porter_min": 12720, "Admin_min": 0, "Total_min": 47670}, {"week": "Week 02", "LL_min": 19530, "Porter_min": 12480, "Admin_min": 0, "Total_min": 32010}, {"week": "Week 03", "LL_min": 14460, "Porter_min": 9180, "Admin_min": 0, "Total_min": 23640}, {"week": "Week 04", "LL_min": 30660, "Porter_min": 16440, "Admin_min": 0, "Total_min": 47100}], "codes": {"Week 01": {"A1": {"LL_min": 0, "Porter_min": 780, "Admin_min": 0}, "A2": {"LL_min": 12690, "Porter_min": 5460, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 22260, "Porter_min": 6480, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 02": {"A1": {"LL_min": 0, "Porter_min": 360, "Admin_min": 0}, "A2": {"LL_min": 18690, "Porter_min": 11640, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 240, "Admin_min": 0}, "A8": {"LL_min": 840, "Porter_min": 240, "Admin_min": 0}}, "Week 03": {"A1": {"LL_min": 0, "Porter_min": 720, "Admin_min": 0}, "A2": {"LL_min": 14460, "Porter_min": 8460, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 04": {"A1": {"LL_min": 300, "Porter_min": 780, "Admin_min": 0}, "A2": {"LL_min": 30240, "Porter_min": 15360, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 120, "Porter_min": 300, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}}},
+"Apr 2026": {"weeks": [{"week": "Week 01", "LL_min": 38040, "Porter_min": 17730, "Admin_min": 0, "Total_min": 55770}, {"week": "Week 02", "LL_min": 49470, "Porter_min": 25335, "Admin_min": 0, "Total_min": 74805}, {"week": "Week 03", "LL_min": 16770, "Porter_min": 7980, "Admin_min": 0, "Total_min": 24750}, {"week": "Week 04", "LL_min": 17130, "Porter_min": 6960, "Admin_min": 1680, "Total_min": 25770}], "codes": {"Week 01": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 20040, "Porter_min": 9690, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 780, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 17220, "Porter_min": 8040, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 02": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 14190, "Porter_min": 8820, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 120, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 35160, "Porter_min": 16515, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 03": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 16170, "Porter_min": 7380, "Admin_min": 0}, "A3": {"LL_min": 180, "Porter_min": 300, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 420, "Porter_min": 300, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 04": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 15630, "Porter_min": 6720, "Admin_min": 60}, "A3": {"LL_min": 600, "Porter_min": 240, "Admin_min": 120}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 180}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 240}, "A6": {"LL_min": 900, "Porter_min": 0, "Admin_min": 300}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 360}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 420}}}},
+"May 2026": {"weeks": [{"week": "Week 01", "LL_min": 37020, "Porter_min": 14400, "Admin_min": 120, "Total_min": 51540}, {"week": "Week 02", "LL_min": 11370, "Porter_min": 6960, "Admin_min": 0, "Total_min": 18330}, {"week": "Week 03", "LL_min": 14520, "Porter_min": 5040, "Admin_min": 0, "Total_min": 19560}, {"week": "Week 04", "LL_min": 9240, "Porter_min": 5100, "Admin_min": 0, "Total_min": 14340}], "codes": {"Week 01": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 14820, "Porter_min": 5940, "Admin_min": 120}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 22200, "Porter_min": 8460, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 02": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 11250, "Porter_min": 6360, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 600, "Admin_min": 0}, "A6": {"LL_min": 120, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 03": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 14190, "Porter_min": 4920, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 330, "Porter_min": 120, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 04": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 9240, "Porter_min": 5100, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}}},
+"Jun 2026": {"weeks": [{"week": "Week 01", "LL_min": 29550, "Porter_min": 10500, "Admin_min": 0, "Total_min": 40050}, {"week": "Week 02", "LL_min": 8280, "Porter_min": 2700, "Admin_min": 0, "Total_min": 10980}, {"week": "Week 03", "LL_min": 0, "Porter_min": 0, "Admin_min": 0, "Total_min": 0}, {"week": "Week 04", "LL_min": 0, "Porter_min": 0, "Admin_min": 0, "Total_min": 0}], "codes": {"Week 01": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 3930, "Porter_min": 1860, "Admin_min": 0}, "A3": {"LL_min": 120, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 780, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 25500, "Porter_min": 7860, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 02": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 8160, "Porter_min": 2700, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 120, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 03": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}, "Week 04": {"A1": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A2": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A3": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A4": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A5": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A6": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A7": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}, "A8": {"LL_min": 0, "Porter_min": 0, "Admin_min": 0}}}}
+};
+let LL_MONTH_LIST = [];
+let LL_OVERRIDES = {};
+
+// ---------- State ----------
+let dept = 'PSA';
+let page = 'overview';
+const CH = {};
+
+// ---------- Custom Chart.js plugin: value labels on bars (overlap-aware) ----------
+const valueLabelsPlugin = {
+  id: 'valueLabels',
+  afterDatasetsDraw(chart, args, opts){
+    if(!opts || !opts.display) return;
+    const ctx = chart.ctx;
+    const fmtFn = opts.format || (v => v);
+    const horiz = chart.options.indexAxis === 'y';
+    const dsCount = chart.data.datasets.filter(d => d.type !== 'line').length;
+    const isGrouped = dsCount > 1;
+
+    const placements = [];
+    const fmtLineFn = opts.formatLine || fmtFn;
+    chart.data.datasets.forEach((ds, di) => {
+      const meta = chart.getDatasetMeta(di);
+      if(meta.hidden) return;
+      const isLine = ds.type === 'line';
+      meta.data.forEach((el, i) => {
+        const val = ds.data[i];
+        if(val == null || val === 0) return;
+        const text = isLine ? fmtLineFn(val) : fmtFn(val);
+        let color = opts.color;
+        if(!color) {
+          const bg = ds.backgroundColor;
+          color = isLine ? (ds.borderColor || '#5f5e5a')
+                          : (typeof bg === 'string' ? bg : (Array.isArray(bg) ? bg[i] : '#5f5e5a'));
+        }
+        let x, y, align, baseline, rot=0;
+        if(horiz){
+          x = el.x + 4; y = el.y; align = 'left'; baseline = 'middle';
+        } else {
+          x = el.x;
+          y = isLine ? el.y + 14 : el.y - 4;
+          align = 'center';
+          baseline = isLine ? 'top' : 'bottom';
+          if(isGrouped && !isLine && el.width && ctx){
+            ctx.font = (opts.font || 'bold 10px') + ' sans-serif';
+            const tw = ctx.measureText(text).width;
+            if(tw > el.width * 0.95){ rot = -Math.PI/4; baseline='middle'; align='left'; y = el.y - 2; }
+          }
+        }
+        placements.push({x, y, text, color, align, baseline, rot, font: opts.font || 'bold 10px', isLine});
+      });
+    });
+
+    for(let i = 1; i < placements.length; i++){
+      const a = placements[i-1], b = placements[i];
+      if(!horiz && Math.abs(a.x - b.x) < 18 && Math.abs(a.y - b.y) < 12){
+        b.y -= 11;
+      }
+    }
+
+    placements.forEach(p => {
+      ctx.save();
+      ctx.fillStyle = p.color;
+      ctx.font = p.font + ' sans-serif';
+      ctx.textAlign = p.align;
+      ctx.textBaseline = p.baseline;
+      if(p.isLine){
+        const tw = ctx.measureText(p.text).width;
+        const pad = 3;
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fillRect(p.x - tw/2 - pad, p.y - 1, tw + pad*2, 13);
+        ctx.fillStyle = p.color;
+      }
+      if(p.rot){
+        ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+        ctx.fillText(p.text, 0, 0);
+      } else {
+        ctx.fillText(p.text, p.x, p.y);
+      }
+      ctx.restore();
+    });
+  }
+};
+if(window.Chart) Chart.register(valueLabelsPlugin);
+
+// ---------- Utilities ----------
+function toMin(s){
+  if(!s)return 0;
+  const t=String(s).trim();if(!t)return 0;
+  const m=t.match(/^(\d+):(\d+)(?::(\d+))?$/);
+  if(m)return parseInt(m[1])*60+parseInt(m[2])+(m[3]?Math.round(parseInt(m[3])/60):0);
+  const n=parseFloat(t);if(!isNaN(n))return Math.round(n*60);
+  return 0;
+}
+function fmtH(m){if(!m)return '0:00';const h=Math.floor(m/60),mn=Math.round(m%60);return h.toLocaleString('en-US')+':'+String(mn).padStart(2,'0');}
+function fmtNum(v){return parseFloat(v).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:1});}
+const GC='rgba(136,135,128,0.18)',TC='#5f5e5a';
+function dc(id){if(CH[id]){CH[id].destroy();delete CH[id];}}
+function showNotice(msg,type){const n=document.getElementById('notice');n.innerHTML=msg;n.className='notice show '+(type||'info');if(type==='success'||type==='info')setTimeout(()=>n.classList.remove('show'),5500);}
+
+// ---------- KP / LP team-view helpers ----------
+// The team-based OT view is shared by KP (dept 'PSA') and LP. curTeams() returns
+// the teams for the active department, so the same renderers scope to KP's 18
+// teams or LP's Porter+PVT.
+function curTeamCodes(){return dept==='LP'?LP_TEAMS:PSA_TEAMS;}
+function curTeams(){const set=curTeamCodes();return TEAMS.filter(t=>set.indexOf(t.code)>=0);}
+function tmTotal(mk,tc){return PSA_DATA[mk]&&PSA_DATA[mk].teams[tc]?PSA_DATA[mk].teams[tc].hours.reduce((a,v)=>a+toMin(v),0):0;}
+function mTotalPSA(mk){return curTeams().reduce((a,t)=>a+tmTotal(mk,t.code),0);}
+function allTotalPSA(){return PSA_MONTHS.reduce((a,mk)=>a+mTotalPSA(mk),0);}
+function teamAllPSA(tc){return PSA_MONTHS.reduce((a,mk)=>a+tmTotal(mk,tc),0);}
+function topTmAllPSA(){let mx=0,nm='';curTeams().forEach(t=>{const m=teamAllPSA(t.code);if(m>mx){mx=m;nm=t.name;}});return{name:nm,min:mx};}
+function peakMoPSA(){let mx=0,nm='';PSA_MONTHS.forEach(mk=>{const g=mTotalPSA(mk);if(g>mx){mx=g;nm=mk;}});return{name:nm,min:mx};}
+function topTmMonthPSA(mk){let mx=0,nm='',cl='';curTeams().forEach(t=>{const m=tmTotal(mk,t.code);if(m>mx){mx=m;nm=t.name;cl=t.color;}});return{name:nm,min:mx,color:cl};}
+// Explicit per-department OT totals (independent of the active toggle).
+function deptOTmonth(mk,codes){return codes.reduce((s,c)=>s+tmTotal(mk,c),0);}
+function deptOTall(codes){return PSA_MONTHS.reduce((a,mk)=>a+deptOTmonth(mk,codes),0);}
+function deptFlightsMonth(mk){const d=PSA_DATA[mk];if(!d)return 0;if(dept==='LP')return curTeams().reduce((a,t)=>a+(d.teams[t.code]?d.teams[t.code].flights.reduce((x,y)=>x+y,0):0),0);return d.flightCounts.reduce((a,b)=>a+b,0);}
+
+// ---------- LL helpers ----------
+function llRec(mk){
+  const base=LL_DATA[mk];if(!base)return null;
+  if(LL_OVERRIDES[mk])return Object.assign({},base,LL_OVERRIDES[mk]);
+  return base;
+}
+function llCatMonth(mk,cat){
+  const r=llRec(mk);if(!r)return 0;
+  if(Array.isArray(r.weeks))return r.weeks.reduce((a,w)=>a+(w[cat+'_min']||0),0);
+  return r[cat+'_min']||0;
+}
+function llTotalMonth(mk){
+  const r=llRec(mk);if(!r)return 0;
+  if(Array.isArray(r.weeks))return r.weeks.reduce((a,w)=>a+(w.LL_min||0)+(w.Porter_min||0)+(w.Admin_min||0),0);
+  return r.Total_min||((r.LL_min||0)+(r.Porter_min||0)+(r.Admin_min||0));
+}
+function llTotalAll(){return LL_MONTH_LIST.reduce((a,mk)=>a+llTotalMonth(mk),0);}
+function llCatAll(c){return LL_MONTH_LIST.reduce((a,mk)=>a+llCatMonth(mk,c),0);}
+function llCodeMonth(mk,code){
+  const r=llRec(mk);if(!r||!r.codes)return 0;
+  let total=0;
+  for(const k in r.codes){
+    const v=r.codes[k];
+    if(v && (k===code) && ('LL_min' in v)){
+      total+=(v.LL_min||0)+(v.Porter_min||0)+(v.Admin_min||0);
+    } else if(v && typeof v==='object' && v[code]){
+      const c=v[code];
+      total+=(c.LL_min||0)+(c.Porter_min||0)+(c.Admin_min||0);
+    }
+  }
+  return total;
+}
+function llCodeAll(c){return LL_MONTH_LIST.reduce((a,mk)=>a+llCodeMonth(mk,c),0);}
+function llCodeCatMonth(mk,code,cat){
+  const r=llRec(mk);if(!r||!r.codes)return 0;
+  let total=0;
+  for(const k in r.codes){
+    const v=r.codes[k];if(!v||typeof v!=='object')continue;
+    if(k===code && ('LL_min' in v)){return v[cat+'_min']||0;}
+    if(v[code] && typeof v[code]==='object')total+=v[code][cat+'_min']||0;
+  }
+  return total;
+}
+function llTopCatAll(){let mx=0,nm='';LL_CATS.forEach(c=>{const m=llCatAll(c.code);if(m>mx){mx=m;nm=c.code;}});return{name:nm,min:mx};}
+function llPeakMo(){let mx=0,nm='';LL_MONTH_LIST.forEach(mk=>{const g=llTotalMonth(mk);if(g>mx){mx=g;nm=mk;}});return{name:nm,min:mx};}
+
+// ---------- Parser: OT LL Summary ----------
+function unwrapMcpResult(raw){
+  if(raw==null)return '';
+  if(typeof raw==='string')return raw;
+  if(raw.structuredContent&&typeof raw.structuredContent.fileContent==='string'&&raw.structuredContent.fileContent.length>10){
+    return raw.structuredContent.fileContent;
+  }
+  if(Array.isArray(raw.content)&&raw.content[0]&&typeof raw.content[0].text==='string'){
+    const t=raw.content[0].text;
+    try{
+      const j=JSON.parse(t);
+      if(j&&typeof j.fileContent==='string'){return j.fileContent;}
+    }catch(e){}
+    if(t.length>10){return t;}
+  }
+  if(Array.isArray(raw.content)){
+    const t=raw.content.map(c=>typeof c==='string'?c:(c&&(c.text||c.fileContent||c.value||c.data||(c.resource&&(c.resource.text||c.resource.fileContent))))||'').filter(Boolean).join('\n');
+    if(t.length>10){return t;}
+  }
+  if(typeof raw.fileContent==='string')return raw.fileContent;
+  if(typeof raw.text==='string')return raw.text;
+  try{return JSON.stringify(raw);}catch(e){return '';}
+}
+
+function spanToMin(cell){
+  if(cell==null)return 0;
+  const s=String(cell);
+  const m=s.match(/hours="(\d+)"\s*minutes="(\d+)"/);
+  if(m)return parseInt(m[1])*60+parseInt(m[2]);
+  const t=s.match(/(\d+):(\d+)(?::\d+)?/);
+  if(t)return parseInt(t[1])*60+parseInt(t[2]);
+  return 0;
+}
+
+function pipeRow(line){
+  const t=line.trim();
+  if(!t.startsWith('|'))return null;
+  let s=t;
+  if(s.startsWith('|'))s=s.slice(1);
+  if(s.endsWith('|'))s=s.slice(0,-1);
+  return s.split('|').map(c=>c.trim());
+}
+
+function parseLLSummary(text){
+  let workText=text;
+  const sStart=workText.indexOf('# Summary');
+  if(sStart>=0){
+    workText=workText.slice(sStart);
+    const next=workText.search(/\n# (?!Summary)/);
+    if(next>0)workText=workText.slice(0,next);
+  }
+  const lines=workText.split('\n');
+  const data={};
+  let curYear=null,curMonths=[];
+  for(const raw of lines){
+    const cells=pipeRow(raw);
+    if(!cells||cells.length<2)continue;
+    if(/^:-+:?$/.test(cells[0]))continue;
+    if(/^\d{4}$/.test(cells[0])&&cells[1]==='LL'){
+      curYear=cells[0];
+      curMonths=cells.slice(5).filter(c=>MONTH_ORDER.includes(c));
+      continue;
+    }
+    if(!curYear)continue;
+    if(MONTH_ORDER.includes(cells[0])){
+      const mk=MONTH_ABBR[cells[0]]+' '+curYear;
+      data[mk]={LL_min:spanToMin(cells[1]),Porter_min:spanToMin(cells[2]),Admin_min:spanToMin(cells[3]),Total_min:spanToMin(cells[4]),codes:{}};
+    }
+    if(cells.length>5){
+      const tag=cells[5];
+      if(/^A[1-8]$/.test(tag)){
+        for(let mi=0;mi<curMonths.length;mi++){
+          const off=5+mi*5;
+          if(off+3>=cells.length)break;
+          const mk=MONTH_ABBR[curMonths[mi]]+' '+curYear;
+          if(!data[mk])data[mk]={LL_min:0,Porter_min:0,Admin_min:0,Total_min:0,codes:{}};
+          data[mk].codes[tag]={LL_min:spanToMin(cells[off+1]),Porter_min:spanToMin(cells[off+2]),Admin_min:spanToMin(cells[off+3])};
+        }
+      }
+    }
+  }
+  return data;
+}
+
+function buildMonthList(data){
+  const keys=Object.keys(data);
+  const parsed=keys.map(k=>{
+    const m=k.match(/^([A-Z][a-z]{2}) (\d{4})$/);
+    if(!m)return null;
+    const monthIdx=Object.values(MONTH_ABBR).indexOf(m[1]);
+    return{key:k,year:parseInt(m[2]),month:monthIdx};
+  }).filter(Boolean);
+  parsed.sort((a,b)=>a.year-b.year||a.month-b.month);
+  return parsed.map(p=>p.key);
+}
+
+// Normalize an LL month record to the flat shape the front-end expects.
+// Apps Script (getLLData_) returns {summary:{LL_min,..},codes:{..},codeTotal,discrepancy};
+// the offline baseline uses either the weekly shape {weeks:[..]} or the flat
+// shape {LL_min,Porter_min,Admin_min,Total_min,codes:{..}}. This collapses the
+// Apps Script shape into the flat one so every helper (activeMonths/llCatMonth/…)
+// keeps working and the month doesn't silently disappear.
+function normalizeLLRecord(r){
+  if(!r||typeof r!=='object')return r;
+  if(Array.isArray(r.weeks))return r;     // weekly shape — handled directly
+  if('LL_min' in r)return r;              // already flat
+  if(r.summary&&typeof r.summary==='object'){
+    const s=r.summary;
+    return {
+      LL_min:s.LL_min||0,Porter_min:s.Porter_min||0,Admin_min:s.Admin_min||0,
+      Total_min:s.Total_min||((s.LL_min||0)+(s.Porter_min||0)+(s.Admin_min||0)),
+      codes:r.codes||{}
+    };
+  }
+  return r;
+}
+
+// Total minutes carried by an LL record (handles weekly + flat shapes).
+function llRecTotal(r){
+  if(!r||typeof r!=='object')return 0;
+  if(Array.isArray(r.weeks))return r.weeks.reduce((a,w)=>a+(w.LL_min||0)+(w.Porter_min||0)+(w.Admin_min||0),0);
+  return (r.LL_min||0)+(r.Porter_min||0)+(r.Admin_min||0);
+}
+
+// Merge a live LL payload over the offline baseline. Each live month is
+// normalized to the flat shape; only months that actually carry data override
+// the baseline. This is the key fix for "LL ไม่ขึ้น": a live source that hasn't
+// been filled in yet (empty/zero months) can no longer blank out a month that
+// has curated offline values like May 2026 — the offline numbers stay visible.
+function applyLiveLL(newLL){
+  if(!newLL||typeof newLL!=='object')return;
+  Object.keys(newLL).forEach(k=>{
+    if(k.startsWith('_'))return;
+    const live=normalizeLLRecord(newLL[k]);
+    if(llRecTotal(live)<=0)return;            // empty live month → keep baseline
+    const cur=LL_DATA[k];
+    // The live source (getLLData_ REV 2) returns flat monthly data with no
+    // weekly breakdown. If we already hold a weekly split whose total matches
+    // the live total exactly, the month hasn't changed — keep the richer weekly
+    // structure so a refresh can't collapse the weekly chart to a single bar.
+    if(cur && Array.isArray(cur.weeks) && !Array.isArray(live.weeks)
+       && llRecTotal(cur)===llRecTotal(live))return;
+    LL_DATA[k]=live;
+  });
+  LL_MONTH_LIST=activeMonths(LL_DATA);
+}
+
+function activeMonths(data){
+  const all=buildMonthList(data);
+  return all.filter(k=>{
+    const r=data[k];if(!r)return false;
+    if(Array.isArray(r.weeks)){
+      return r.weeks.reduce((a,w)=>a+(w.LL_min||0)+(w.Porter_min||0)+(w.Admin_min||0),0)>0;
+    }
+    return ((r.LL_min||0)+(r.Porter_min||0)+(r.Admin_min||0))>0;
+  });
+}
+
+// ---------- Live fetch ----------
+let LAST_DEBUG=null;
+
+async function refreshLL(){
+  const btn=document.getElementById('btnRefresh');
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span> กำลังโหลด...';}
+  showNotice('กำลังดึงข้อมูล LL จาก Google Drive...','info');
+  let stage='init';
+  try{
+    if(!window.cowork){throw new Error('window.cowork ไม่มี — artifact ต้องเปิดผ่าน Cowork sidebar');}
+    if(!window.cowork.callMcpTool){throw new Error('window.cowork มีอยู่แต่ไม่มี callMcpTool');}
+    stage='calling MCP read';
+    let text='';
+    let usedFallback=false;
+    let readErr=null;
+    try{
+      const raw=await window.cowork.callMcpTool(READ_TOOL,{fileId:OT_LL_FILE_ID});
+      window.LAST_LL_RAW=raw;
+      const isErr=raw&&raw.isError;
+      LAST_DEBUG={source:'read_file_content',type:typeof raw,size:raw?(typeof raw==='string'?raw.length:JSON.stringify(raw).length):0,isError:isErr};
+      if(isErr){
+        const errText=raw.content&&raw.content[0]&&raw.content[0].text||'unknown';
+        throw new Error('MCP returned isError=true: '+errText.slice(0,200));
+      }
+      text=unwrapMcpResult(raw);
+    }catch(e){
+      readErr=e;
+    }
+    if(!text||text.length<200){
+      stage='calling MCP metadata (fallback)';
+      try{
+        const meta=await window.cowork.callMcpTool(META_TOOL,{fileId:OT_LL_FILE_ID});
+        const m=meta&&typeof meta==='object'?meta:JSON.parse(unwrapMcpResult(meta)||'{}');
+        const snip=m.contentSnippet||(m.content&&m.content[0]&&m.content[0].text?m.content[0].text:null);
+        if(snip&&snip.length>200){text=snip;usedFallback=true;}
+      }catch(e2){
+        if(readErr)throw new Error('read failed: '+readErr.message+' • metadata failed: '+e2.message);
+        throw e2;
+      }
+    }
+    window.LAST_LL_TEXT=text;
+    if(!text)throw new Error('Drive ตอบกลับว่าง');
+    if(text.length<200)throw new Error('ข้อมูลสั้นผิดปกติ ('+text.length+' chars)');
+    stage='parse';
+    applyLiveLL(parseLLSummary(text));
+    if(LL_MONTH_LIST.length===0)throw new Error('parser ทำงานแต่ไม่พบเดือนที่มีข้อมูล');
+    window.LAST_LL_PARSE=LL_DATA;
+    try{localStorage.setItem('ot_dashboard_ll_last',JSON.stringify({data:LL_DATA,list:LL_MONTH_LIST,at:Date.now()}));}catch(e){}
+    document.getElementById('lastUpdate').textContent='อัปเดตล่าสุด: '+new Date().toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'})+(usedFallback?' (snippet)':'');
+    showNotice('✓ โหลด LL สำเร็จ ('+LL_MONTH_LIST.length+' เดือน)','success');
+    go(page);
+  }catch(err){
+    showNotice('✗ ['+stage+'] '+err.message,'error');
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML='Refresh from Drive';}
+  }
+}
+
+/* ============== ADMIN TEMPLATE — single-source long-format ============== */
+let TEMPLATE_FILE_ID = '';
+
+window.setTemplateId=function(){
+  const v=prompt('Admin Template File ID:',TEMPLATE_FILE_ID||'');
+  if(v===null)return;
+  TEMPLATE_FILE_ID=v.trim();
+  try{
+    if(TEMPLATE_FILE_ID)localStorage.setItem('ot_dashboard_template_id',TEMPLATE_FILE_ID);
+    else localStorage.removeItem('ot_dashboard_template_id');
+  }catch(e){}
+  updateTemplateLabel();
+  if(TEMPLATE_FILE_ID){
+    showNotice('✓ ตั้ง Template ID แล้ว — กดปุ่ม Refresh All','success');
+    refreshAll();
+  }else{
+    showNotice('ล้าง Template ID','info');
+  }
+};
+
+function updateTemplateLabel(){
+  const lbl=document.getElementById('tplLbl');
+  if(!lbl)return;
+  if(TEMPLATE_FILE_ID){lbl.textContent='Template ✓';document.getElementById('btnTemplate').classList.add('success');}
+  else{lbl.textContent='Template';document.getElementById('btnTemplate').classList.remove('success');}
+}
+
+async function refreshFromTemplate(silent){
+  if(!TEMPLATE_FILE_ID)throw new Error('ยังไม่ได้ตั้ง Template ID');
+  const raw=await window.cowork.callMcpTool(READ_TOOL,{fileId:TEMPLATE_FILE_ID});
+  window.LAST_TPL_RAW=raw;
+  if(raw&&raw.isError){
+    const t=raw.content&&raw.content[0]&&raw.content[0].text||'unknown';
+    throw new Error('Template read error: '+t.slice(0,200));
+  }
+  const text=unwrapMcpResult(raw);
+  if(!text||text.length<100)throw new Error('Template ตอบกลับว่าง');
+  window.LAST_TPL_TEXT=text;
+  const psaCount=parsePSAFromTemplate(text);
+  const llCount=parseLLFromTemplate(text);
+  if(psaCount===0&&llCount===0)throw new Error('ไม่พบข้อมูลใน sheet PSA_Data หรือ LL_Data');
+  if(!silent)showNotice('✓ โหลด Template สำเร็จ — KP: '+psaCount+' rows • LL: '+llCount+' rows','success');
+}
+
+function extractSection(text,name){
+  const i=text.indexOf('# '+name);if(i<0)return null;
+  const lines=text.slice(i).split('\n');
+  let endIdx=lines.length;
+  for(let j=1;j<lines.length;j++){if(/^# /.test(lines[j])){endIdx=j;break;}}
+  return lines.slice(0,endIdx).join('\n');
+}
+
+function parsePSAFromTemplate(text){
+  const teamsBody=extractSection(text,'PSA_Teams');
+  const codesBody=extractSection(text,'PSA_Codes');
+  const flBody=extractSection(text,'PSA_Flights');
+  const otBody=extractSection(text,'PSA_OT');
+  const v1Body=(!teamsBody&&!otBody)?extractSection(text,'PSA_Data'):null;
+  if(!teamsBody&&!codesBody&&!flBody&&!otBody&&!v1Body)return 0;
+
+  const newPSA={};
+  function ensureMonth(mk){
+    if(!newPSA[mk])newPSA[mk]={weeks:['W1: 1-7','W2: 8-14','W3: 15-21','W4: 22-31'],flightCounts:[0,0,0,0],teams:{},codes:{}};
+  }
+  function ensureTeam(mk,team){
+    if(!newPSA[mk].teams[team])newPSA[mk].teams[team]={hours:['0:00','0:00','0:00','0:00'],flights:[0,0,0,0],codes:{}};
+  }
+  function parseRows(body,callback){
+    if(!body)return 0;
+    const lines=body.split('\n');
+    let hdr=null;let n=0;
+    for(const ln of lines){
+      const cells=pipeRow(ln);if(!cells)continue;
+      if(/^:-+:?$/.test(cells[0]))continue;
+      if(!hdr){hdr=cells.map(c=>c.toLowerCase());continue;}
+      if(cells.every(c=>!c||c.trim()==='-'))continue;
+      const obj={};cells.forEach((v,i)=>{obj[hdr[i]]=v;});
+      if(callback(obj))n++;
+    }
+    return n;
+  }
+
+  let count=0;
+  function minToHHMM(m){const h=Math.floor(m/60),mn=Math.round(m%60);return h+':'+String(mn).padStart(2,'0');}
+
+  count+=parseRows(teamsBody,obj=>{
+    const year=parseInt(obj.year);const month=obj.month;const week=obj.week;const team=obj.team;
+    if(!year||!month||!week||!team)return false;
+    const monthAbbr=month.length>3?month.slice(0,3):month;
+    if(!Object.values(MONTH_ABBR).includes(monthAbbr))return false;
+    const mk=monthAbbr+' '+year;
+    const wi=parseInt(String(week).replace(/[^\d]/g,''))-1;
+    if(wi<0||wi>3)return false;
+    ensureMonth(mk);ensureTeam(mk,team);
+    const hhmm=String(obj.ot_hhmm||'').trim()||'0:00';
+    newPSA[mk].teams[team].hours[wi]=hhmm;
+    return true;
+  });
+
+  count+=parseRows(codesBody,obj=>{
+    const year=parseInt(obj.year);const month=obj.month;const week=obj.week;const code=(obj.code||'').toUpperCase();
+    if(!year||!month||!week||!code)return false;
+    if(!/^A[1-8]$/.test(code))return false;
+    const monthAbbr=month.length>3?month.slice(0,3):month;
+    if(!Object.values(MONTH_ABBR).includes(monthAbbr))return false;
+    const mk=monthAbbr+' '+year;
+    const wi=parseInt(String(week).replace(/[^\d]/g,''))-1;
+    if(wi<0||wi>3)return false;
+    const min=spanToMin(obj.ot_hhmm||'0:00');
+    ensureMonth(mk);
+    if(!newPSA[mk].codes[code])newPSA[mk].codes[code]={mins:[0,0,0,0]};
+    newPSA[mk].codes[code].mins[wi]+=min;
+    return true;
+  });
+
+  count+=parseRows(otBody,obj=>{
+    const year=parseInt(obj.year);const month=obj.month;const week=obj.week;const team=obj.team;const code=(obj.code||'').toUpperCase();
+    if(!year||!month||!week||!team)return false;
+    const monthAbbr=month.length>3?month.slice(0,3):month;
+    if(!Object.values(MONTH_ABBR).includes(monthAbbr))return false;
+    const mk=monthAbbr+' '+year;
+    const wi=parseInt(String(week).replace(/[^\d]/g,''))-1;
+    if(wi<0||wi>3)return false;
+    const hhmm=String(obj.ot_hhmm||'').trim()||'0:00';
+    const min=spanToMin(hhmm);
+    ensureMonth(mk);ensureTeam(mk,team);
+    const prevMin=spanToMin(newPSA[mk].teams[team].hours[wi]);
+    newPSA[mk].teams[team].hours[wi]=minToHHMM(prevMin+min);
+    if(code&&/^A[1-8]$/.test(code)){
+      if(!newPSA[mk].teams[team].codes[code])newPSA[mk].teams[team].codes[code]={mins:[0,0,0,0]};
+      newPSA[mk].teams[team].codes[code].mins[wi]+=min;
+      if(!newPSA[mk].codes[code])newPSA[mk].codes[code]={mins:[0,0,0,0]};
+      newPSA[mk].codes[code].mins[wi]+=min;
+    }
+    return true;
+  });
+
+  count+=parseRows(flBody,obj=>{
+    const year=parseInt(obj.year);const month=obj.month;const week=obj.week;const team=obj.team;
+    if(!year||!month||!week||!team)return false;
+    const monthAbbr=month.length>3?month.slice(0,3):month;
+    if(!Object.values(MONTH_ABBR).includes(monthAbbr))return false;
+    const mk=monthAbbr+' '+year;
+    const wi=parseInt(String(week).replace(/[^\d]/g,''))-1;
+    if(wi<0||wi>3)return false;
+    const fl=parseInt(obj.flights||'0')||0;
+    ensureMonth(mk);ensureTeam(mk,team);
+    newPSA[mk].teams[team].flights[wi]=fl;
+    return true;
+  });
+  Object.keys(newPSA).forEach(mk=>{
+    const m=newPSA[mk];
+    m.flightCounts=[0,0,0,0];
+    Object.values(m.teams).forEach(t=>{for(let i=0;i<4;i++)m.flightCounts[i]+=t.flights[i]||0;});
+  });
+
+  if(v1Body){
+    count+=parseRows(v1Body,obj=>{
+      const year=parseInt(obj.year);const month=obj.month;const week=obj.week;const team=obj.team;
+      if(!year||!month||!week||!team)return false;
+      const monthAbbr=month.length>3?month.slice(0,3):month;
+      if(!Object.values(MONTH_ABBR).includes(monthAbbr))return false;
+      const mk=monthAbbr+' '+year;
+      const wi=parseInt(String(week).replace(/[^\d]/g,''))-1;
+      if(wi<0||wi>3)return false;
+      ensureMonth(mk);ensureTeam(mk,team);
+      const hhmm=String(obj.ot_hhmm||'').trim();
+      if(hhmm)newPSA[mk].teams[team].hours[wi]=hhmm;
+      const fl=parseInt(obj.flights||'0')||0;
+      newPSA[mk].teams[team].flights[wi]=fl;
+      newPSA[mk].flightCounts[wi]+=fl;
+      return true;
+    });
+  }
+
+  if(count>0){
+    Object.keys(PSA_DATA).forEach(k=>delete PSA_DATA[k]);
+    Object.keys(newPSA).forEach(k=>{PSA_DATA[k]=newPSA[k];});
+    const sorted=Object.keys(newPSA).map(k=>{
+      const m=k.match(/^([A-Z][a-z]{2}) (\d{4})$/);
+      return{key:k,year:+m[2],mo:Object.values(MONTH_ABBR).indexOf(m[1])};
+    }).sort((a,b)=>a.year-b.year||a.mo-b.mo).map(x=>x.key);
+    PSA_MONTHS.length=0;sorted.forEach(k=>PSA_MONTHS.push(k));
+    Object.values(newPSA).forEach(mr=>{
+      TEAMS.forEach(t=>{if(!mr.teams[t.code])mr.teams[t.code]={hours:['0:00','0:00','0:00','0:00'],flights:[0,0,0,0],codes:{}};});
+    });
+  }
+  return count;
+}
+
+function psaCodeMonth(mk,code){const d=PSA_DATA[mk];if(!d||!d.codes||!d.codes[code])return 0;return d.codes[code].mins.reduce((a,b)=>a+b,0);}
+function psaCodeAll(code){return PSA_MONTHS.reduce((a,mk)=>a+psaCodeMonth(mk,code),0);}
+function psaTeamCodeMonth(mk,team,code){const t=PSA_DATA[mk]&&PSA_DATA[mk].teams&&PSA_DATA[mk].teams[team];if(!t||!t.codes||!t.codes[code])return 0;return t.codes[code].mins.reduce((a,b)=>a+b,0);}
+
+function parseLLFromTemplate(text){
+  const body=extractSection(text,'LL_Data');if(!body)return 0;
+  const lines=body.split('\n');
+  let hdr=null;let count=0;
+  const newLL={};
+  for(const ln of lines){
+    const cells=pipeRow(ln);if(!cells)continue;
+    if(/^:-+:?$/.test(cells[0]))continue;
+    if(!hdr){hdr=cells.map(c=>c.toLowerCase());continue;}
+    if(cells.every(c=>!c||c.trim()==='-'))continue;
+    const obj={};cells.forEach((v,i)=>{obj[hdr[i]]=v;});
+    const year=parseInt(obj.year);const month=obj.month;const cat=obj.category;const code=obj.code;
+    if(!year||!month||!cat)continue;
+    const monthAbbr=month.length>3?month.slice(0,3):month;
+    if(!Object.values(MONTH_ABBR).includes(monthAbbr))continue;
+    const mk=monthAbbr+' '+year;
+    const min=spanToMin(obj.ot_hhmm||'0:00');
+    if(!newLL[mk])newLL[mk]={LL_min:0,Porter_min:0,Admin_min:0,Total_min:0,codes:{}};
+    if(['LL','Porter','Admin'].includes(cat)){
+      newLL[mk][cat+'_min']+=min;
+      newLL[mk].Total_min+=min;
+      if(code&&/^A[1-8]$/.test(code)){
+        if(!newLL[mk].codes[code])newLL[mk].codes[code]={LL_min:0,Porter_min:0,Admin_min:0};
+        newLL[mk].codes[code][cat+'_min']+=min;
+      }
+    }
+    count++;
+  }
+  if(count>0){
+    applyLiveLL(newLL);
+    try{localStorage.setItem('ot_dashboard_ll_last',JSON.stringify({data:LL_DATA,list:LL_MONTH_LIST,at:Date.now()}));}catch(e){}
+    document.getElementById('lastUpdate').textContent='อัปเดตล่าสุด: '+new Date().toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'})+' (template)';
+  }
+  return count;
+}
+
+window.refreshAll=async function(){
+  const btn=document.getElementById('btnRefreshAll');
+  btn.disabled=true;btn.innerHTML='<span class="spin"></span> Refreshing...';
+  try{
+    if(TEMPLATE_FILE_ID){
+      await refreshFromTemplate();
+    }else{
+      await refreshLL();
+    }
+    go(page);
+  }catch(err){
+    showNotice('✗ '+err.message,'error');
+  }finally{
+    btn.disabled=false;
+    btn.innerHTML='Refresh All';
+  }
+};
+
+window.dumpDebug=function(){
+  const info={coworkPresent:!!window.cowork,callMcpToolPresent:!!(window.cowork&&window.cowork.callMcpTool),lastDebug:LAST_DEBUG,fileId:OT_LL_FILE_ID,rawTextLen:window.LAST_LL_TEXT?window.LAST_LL_TEXT.length:0};
+  alert('OT Dashboard Debug:\n\n'+JSON.stringify(info,null,2));
+};
+
+// ---------- PSA Flight CSV upload ----------
+function handlePsaCsv(e){
+  const f=e.target.files[0];if(!f)return;
+  const fr=new FileReader();
+  fr.onload=ev=>{
+    try{
+      parsePsaFlightCsv(ev.target.result);
+      showNotice('✓ อัปเดต Flight count สำเร็จ','success');
+      go(page);
+    }catch(err){showNotice('✗ '+err.message,'error');}
+  };
+  fr.readAsText(f);
+  e.target.value='';
+}
+function parsePsaFlightCsv(text){
+  const TEAM_MAP={EK:'EK',UO:'EK',FY:'EK','6B':'EK',BY:'EK',SQ:'SQ',CX:'SQ',LY:'SQ',EY:'EY',AY:'EY',DV:'EY',TR:'TR',QP:'TR','6E':'TR',WY:'WY',G9:'WY','9C':'WY',DK:'WY',JQ:'JQ',IT:'JQ',IX:'JQ',AI:'JQ',N0:'JQ',TK:'TK',VJ:'TK',SG:'TK',HY:'TK',OD:'TK',KC:'KC',LJ:'KC',KE:'KC',OZ:'KC',NO:'KC',AF:'KC',QR:'QR',MH:'QR',OM:'QR',DE:'QR',AK:'AK',QZ:'AK','8M':'AK',SU:'SU',W5:'SU',B2:'SU','3U':'CHN','9H':'CHN',AQ:'CHN',CA:'CHN',CZ:'CHN',FM:'CHN',HU:'CHN',HO:'CHN',HX:'CHN',MU:'CHN',ZF:'CHARTER',EO:'CHARTER',WZ:'CHARTER',N4:'CHARTER',G2:'CHARTER',LO:'CHARTER',HH:'CHARTER',H4:'CHARTER',S7:'CHARTER',C6:'CHARTER',SV:'SV',WK:'SV',KA:'SV',PG:'PG',PVT:'PVT'};
+  const M={JAN:'Jan',FEB:'Feb',MAR:'Mar',APR:'Apr',MAY:'May',JUN:'Jun',JUL:'Jul',AUG:'Aug',SEP:'Sep',OCT:'Oct',NOV:'Nov',DEC:'Dec'};
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  if(lines.length<2)throw new Error('CSV ว่างเปล่า');
+  const hdr=lines[0].split(',').map(s=>s.replace(/"/g,'').trim().toLowerCase());
+  const dateIdx=hdr.findIndex(h=>h.startsWith('date')||h==='วันที่');
+  const airIdx=hdr.findIndex(h=>h.includes('airline'));
+  const typeIdx=hdr.findIndex(h=>h.includes('type'));
+  if(dateIdx<0||airIdx<0)throw new Error('ไม่พบคอลัมน์ Date หรือ Airlines');
+  const counters={},totals={},detected=new Set();
+  let cancelled=0,active=0;
+  lines.slice(1).forEach(l=>{
+    const c=l.split(',').map(s=>s.replace(/"/g,'').trim());
+    const ds=c[dateIdx];if(!ds)return;
+    const dt=new Date(ds);if(isNaN(dt))return;
+    const day=dt.getDate(),mo=dt.getMonth()+1,yr=dt.getFullYear();
+    const monthLabel=Object.values(M)[mo-1]+' '+yr;
+    if(!PSA_DATA[monthLabel])return;
+    detected.add(monthLabel);
+    const wIdx=day<=7?0:day<=14?1:day<=21?2:3;
+    if(typeIdx>=0&&(c[typeIdx]||'').toLowerCase()==='cancelled'){cancelled++;return;}
+    active++;
+    if(!totals[monthLabel])totals[monthLabel]=[0,0,0,0];
+    totals[monthLabel][wIdx]++;
+    const team=TEAM_MAP[(c[airIdx]||'').toUpperCase()];
+    if(team){
+      if(!counters[monthLabel])counters[monthLabel]={};
+      if(!counters[monthLabel][team])counters[monthLabel][team]=[0,0,0,0];
+      counters[monthLabel][team][wIdx]++;
+    }
+  });
+  detected.forEach(mk=>{
+    PSA_DATA[mk].flightCounts=totals[mk]||[0,0,0,0];
+    Object.keys(counters[mk]||{}).forEach(t=>{
+      if(PSA_DATA[mk].teams[t])PSA_DATA[mk].teams[t].flights=counters[mk][t];
+    });
+  });
+}
+
+// ---------- Routing ----------
+window.go=function(p){
+  page=p;
+  Object.keys(CH).forEach(id=>dc(id));
+  renderTabs();
+  if(dept==='LL'){
+    if(p==='overview')renderLLOverview();else renderLLMonth(p);
+  }else{
+    if(p==='overview')renderPSAOverview();else renderPSAMonth(p);
+  }
+  window.scrollTo({top:0,behavior:'smooth'});
+};
+window.setDept=function(d){
+  dept=d;
+  document.getElementById('btnPSA').classList.toggle('active',d==='PSA');
+  document.getElementById('btnLP').classList.toggle('active',d==='LP');
+  document.getElementById('btnLL').classList.toggle('active',d==='LL');
+  const psaRange=PSA_MONTHS.length?PSA_MONTHS[0]+' – '+PSA_MONTHS[PSA_MONTHS.length-1]:'no data';
+  const llRange=LL_MONTH_LIST.length?LL_MONTH_LIST[0]+' – '+LL_MONTH_LIST[LL_MONTH_LIST.length-1]:'no data yet';
+  document.getElementById('hdr-sub').textContent=(d==='LL'?'LL — Overtime by category (monthly)':(d==='LP'?'LP — Overtime by team (weekly)':'KP — Overtime by team (weekly)'))+' • '+ (d==='LL'?llRange:psaRange);
+  page='overview';
+  go(page);
+};
+
+function renderTabs(){
+  const months=dept==='LL'?LL_MONTH_LIST:PSA_MONTHS;
+  document.getElementById('tabs').innerHTML=
+    `<button class="tab ov${page==='overview'?' active':''}" onclick="go('overview')">Overview</button>`+
+    months.map(m=>`<button class="tab${page===m?' active':''}" onclick="go('${m}')">${m}</button>`).join('');
+}
+
+/* ============== PSA RENDERING ============== */
+function combinedSummaryCard(){
+  const kpTotal=deptOTall(PSA_TEAMS);
+  const lpTotal=deptOTall(LP_TEAMS);
+  const llTotal=llTotalAll();
+  const totalFlights=PSA_MONTHS.reduce((a,mk)=>a+(PSA_DATA[mk]?PSA_DATA[mk].flightCounts.reduce((b,c)=>b+c,0):0),0);
+  let peakMk='-',peakVal=0;
+  PSA_MONTHS.forEach(mk=>{
+    const v=deptOTmonth(mk,PSA_TEAMS)+deptOTmonth(mk,LP_TEAMS)+(LL_DATA[mk]?llTotalMonth(mk):0);
+    if(v>peakVal){peakVal=v;peakMk=mk;}
+  });
+  const lastMk=PSA_MONTHS[PSA_MONTHS.length-1];
+  const mpPSA=manpowerMonth(lastMk,'PSA');
+  const mpLP=manpowerMonth(lastMk,'LP');
+  const mpLL=manpowerMonth(lastMk,'LL');
+  const mpTotal=mpPSA+mpLP+mpLL;
+  return `<div class="card" style="background:linear-gradient(135deg,#dbeafe 0%,#ede9fe 100%);border-color:#a5b4fc;padding:1rem 1.25rem;margin-bottom:1rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:13.5px;font-weight:600;color:#1e40af">📊 Executive Summary — KP + LP + LL Combined</div>
+      <div style="font-size:11px;color:#475569">${PSA_MONTHS[0]} – ${PSA_MONTHS[PSA_MONTHS.length-1]}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+      <div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border-left:3px solid #3b82f6">
+        <div style="font-size:10.5px;color:#475569;margin-bottom:3px">KP Total OT</div>
+        <div style="font-size:17px;font-weight:600;color:#1e40af">${fmtH(kpTotal)}</div>
+        <div style="font-size:10px;color:#64748b">${mpPSA} คน (${lastMk})</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border-left:3px solid #f59e0b">
+        <div style="font-size:10.5px;color:#475569;margin-bottom:3px">LP Total OT</div>
+        <div style="font-size:17px;font-weight:600;color:#b45309">${fmtH(lpTotal)}</div>
+        <div style="font-size:10px;color:#64748b">${mpLP} คน (${lastMk})</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border-left:3px solid #8b5cf6">
+        <div style="font-size:10.5px;color:#475569;margin-bottom:3px">LL Total OT</div>
+        <div style="font-size:17px;font-weight:600;color:#6d28d9">${fmtH(llTotal)}</div>
+        <div style="font-size:10px;color:#64748b">${mpLL} คน (${lastMk})</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border-left:3px solid #ef4444">
+        <div style="font-size:10.5px;color:#475569;margin-bottom:3px">Total Flights</div>
+        <div style="font-size:17px;font-weight:600;color:#b91c1c">${totalFlights.toLocaleString('en-US')}</div>
+        <div style="font-size:10px;color:#64748b">active (Cancelled excluded)</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border-left:3px solid #10b981">
+        <div style="font-size:10.5px;color:#475569;margin-bottom:3px">Peak Month (Combined)</div>
+        <div style="font-size:15px;font-weight:600;color:#047857">${peakMk}</div>
+        <div style="font-size:10px;color:#64748b">${fmtH(peakVal)} total</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border-left:3px solid #f59e0b">
+        <div style="font-size:10.5px;color:#475569;margin-bottom:3px">Headcount Total</div>
+        <div style="font-size:17px;font-weight:600;color:#b45309">${mpTotal} คน</div>
+        <div style="font-size:10px;color:#64748b">KP ${mpPSA} + LP ${mpLP} + LL ${mpLL} (${lastMk})</div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-t">KP vs LP vs LL — Monthly OT Comparison (Oct 2025 – ${PSA_MONTHS[PSA_MONTHS.length-1]})</div>
+    <div style="position:relative;width:100%;height:300px"><canvas id="overviewCmp"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-t">Headcount Trend per month</div>
+    <div style="position:relative;width:100%;height:240px"><canvas id="overviewMP"></canvas></div>
+  </div>`;
+}
+
+function renderCombinedCharts(){
+  if(document.getElementById('overviewCmp')){
+    dc('overviewCmp');
+    const kpData=PSA_MONTHS.map(mk=>+(deptOTmonth(mk,PSA_TEAMS)/60).toFixed(1));
+    const lpData=PSA_MONTHS.map(mk=>+(deptOTmonth(mk,LP_TEAMS)/60).toFixed(1));
+    const llData=PSA_MONTHS.map(mk=>+((LL_DATA[mk]?llTotalMonth(mk):0)/60).toFixed(1));
+    const flights=PSA_MONTHS.map(mk=>PSA_DATA[mk]?PSA_DATA[mk].flightCounts.reduce((a,b)=>a+b,0):0);
+    CH['overviewCmp']=new Chart(document.getElementById('overviewCmp'),{type:'bar',
+      data:{labels:PSA_MONTHS,datasets:[
+        {label:'KP OT (hrs)',data:kpData,backgroundColor:'#3b82f6',borderRadius:3,yAxisID:'y',order:3},
+        {label:'LP OT (hrs)',data:lpData,backgroundColor:'#f59e0b',borderRadius:3,yAxisID:'y',order:3},
+        {label:'LL OT (hrs)',data:llData,backgroundColor:'#8b5cf6',borderRadius:3,yAxisID:'y',order:3},
+        {label:'Flights',data:flights,type:'line',borderColor:'#ef4444',backgroundColor:'#ef444422',borderWidth:2.5,pointRadius:4.5,pointBackgroundColor:'#ef4444',tension:0.3,fill:false,yAxisID:'y1',order:1},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        layout:{padding:{top:24}},
+        plugins:{legend:{display:true,position:'top',labels:{color:TC,font:{size:11},padding:10,usePointStyle:true}},
+          tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y1'?c.dataset.label+': '+fmtNum(c.raw)+' flights':c.dataset.label+': '+fmtNum(c.raw)+' hrs'}},
+          valueLabels:{display:true,color:'#5f5e5a',font:'bold 10px',format:v=>fmtNum(v)+'h',formatLine:v=>fmtNum(v)}},
+        scales:{x:{ticks:{color:TC,font:{size:10}},grid:{display:false}},
+          y:{position:'left',min:0,ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC},title:{display:true,text:'OT Hours',color:TC,font:{size:11}}},
+          y1:{position:'right',min:0,ticks:{color:'#ef4444',font:{size:10}},grid:{display:false},title:{display:true,text:'Flights',color:'#ef4444',font:{size:11}}}}}});
+  }
+  if(document.getElementById('overviewMP')){
+    dc('overviewMP');
+    CH['overviewMP']=new Chart(document.getElementById('overviewMP'),{type:'line',
+      data:{labels:PSA_MONTHS,datasets:[
+        {label:'KP Headcount',data:MANPOWER_DEPT.PSA,borderColor:'#3b82f6',backgroundColor:'#3b82f622',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#3b82f6',tension:0.3,fill:false},
+        {label:'LP Headcount',data:MANPOWER_DEPT.LP,borderColor:'#f59e0b',backgroundColor:'#f59e0b22',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#f59e0b',tension:0.3,fill:false},
+        {label:'LL Headcount',data:MANPOWER_DEPT.LL,borderColor:'#8b5cf6',backgroundColor:'#8b5cf622',borderWidth:2.5,pointRadius:4,pointBackgroundColor:'#8b5cf6',tension:0.3,fill:false},
+        {label:'Total',data:PSA_MONTHS.map((_,i)=>MANPOWER_DEPT.PSA[i]+MANPOWER_DEPT.LP[i]+MANPOWER_DEPT.LL[i]),borderColor:'#10b981',backgroundColor:'#10b98122',borderWidth:2,pointRadius:3.5,pointBackgroundColor:'#10b981',tension:0.3,fill:false,borderDash:[5,3]},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        layout:{padding:{top:20}},
+        plugins:{legend:{display:true,position:'top',labels:{color:TC,font:{size:11},padding:10,usePointStyle:true}},
+          tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+c.raw+' คน'}},
+          valueLabels:{display:true,color:'#5f5e5a',font:'bold 9px',format:v=>v+'',formatLine:v=>v+''}},
+        scales:{x:{ticks:{color:TC,font:{size:10}},grid:{display:false}},y:{beginAtZero:false,ticks:{color:TC,font:{size:10}},grid:{color:GC},title:{display:true,text:'Headcount (คน)',color:TC,font:{size:11}}}}}});
+  }
+}
+
+function renderPSAOverview(){
+  const total=allTotalPSA(),top=topTmAllPSA(),peak=peakMoPSA();
+  document.getElementById('content').innerHTML=combinedSummaryCard()+`
+  <div class="g5">
+    ${PSA_MONTHS.map((mk,i)=>`<div class="metric" style="border-top:2px solid ${MCOLS[i]}">
+      <div class="metric-l">${mk}</div>
+      <div class="metric-v" style="font-size:17px">${fmtH(mTotalPSA(mk))}</div>
+      <div class="metric-s">hrs total</div>
+    </div>`).join('')}
+  </div>
+  <div class="g4">
+    <div class="metric"><div class="metric-l">Grand total</div><div class="metric-v">${fmtH(total)}</div><div class="metric-s">${PSA_MONTHS.length} months</div></div>
+    <div class="metric"><div class="metric-l">Top team</div><div class="metric-v" style="font-size:14px">${top.name}</div><div class="metric-s">${fmtH(top.min)} hrs</div></div>
+    <div class="metric"><div class="metric-l">Peak month</div><div class="metric-v" style="font-size:14px">${peak.name}</div><div class="metric-s">${fmtH(peak.min)} hrs</div></div>
+    <div class="metric"><div class="metric-l">Teams</div><div class="metric-v">${curTeams().length}</div><div class="metric-s">tracked</div></div>
+  </div>
+  <div class="card"><div class="card-t">Total OT per month vs Flight count</div><div style="position:relative;width:100%;height:240px"><canvas id="chtMo"></canvas></div></div>
+  <div class="card"><div class="card-t">Monthly OT trend per team</div><div style="position:relative;width:100%;height:320px"><canvas id="chtTrend"></canvas></div><div class="leg" id="ovleg"></div></div>
+  ${(()=>{const any=PSA_MONTHS.some(mk=>PSA_DATA[mk]&&PSA_DATA[mk].codes&&Object.keys(PSA_DATA[mk].codes).length>0);return (dept!=='LP'&&any)?`<div class="card"><div class="card-t">KP By Code (A1–A8) — all months combined</div><div style="position:relative;width:100%;height:240px"><canvas id="psaCodeAll"></canvas></div></div>`:'';})()}
+  <div class="card"><div class="card-t">Team totals — all months</div><div class="tw"><table id="ovtbl"></table></div></div>`;
+
+  renderCombinedCharts();
+  dc('chtMo');
+  const flightCounts=PSA_MONTHS.map(mk=>deptFlightsMonth(mk));
+  CH['chtMo']=new Chart(document.getElementById('chtMo'),{type:'bar',
+    data:{labels:PSA_MONTHS,datasets:[{
+      label:'OT Hours',data:PSA_MONTHS.map(mk=>+(mTotalPSA(mk)/60).toFixed(1)),
+      backgroundColor:MCOLS,borderRadius:4,yAxisID:'y',order:2
+    },{
+      label:'Number of Flights',data:flightCounts,type:'line',
+      borderColor:'#ef4444',backgroundColor:'#ef444422',borderWidth:2.5,
+      pointRadius:4,pointBackgroundColor:'#ef4444',tension:0.3,fill:true,yAxisID:'y1',order:1
+    }]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      layout:{padding:{top:20}},
+      plugins:{legend:{display:true,position:'top',labels:{color:TC,font:{size:11},padding:12,usePointStyle:true}},
+        tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y1'?c.dataset.label+': '+fmtNum(c.raw)+' flights':c.dataset.label+': '+fmtNum(c.raw)+' hrs'}},
+        valueLabels:{display:true,color:'#5f5e5a',font:'bold 10px',format:v=>fmtNum(v)+'h',formatLine:v=>fmtNum(v)}},
+      scales:{x:{ticks:{color:TC,font:{size:10}},grid:{display:false}},
+        y:{position:'left',min:0,ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC},title:{display:true,text:'OT Hours',color:TC,font:{size:11}}},
+        y1:{position:'right',min:0,ticks:{color:'#ef4444',font:{size:10}},grid:{display:false},title:{display:true,text:'Flights',color:'#ef4444',font:{size:11}}}}}});
+
+  dc('chtTrend');
+  CH['chtTrend']=new Chart(document.getElementById('chtTrend'),{type:'line',
+    data:{labels:PSA_MONTHS,datasets:curTeams().map((t,idx)=>{const col=TRENDCOLORS[idx%TRENDCOLORS.length];return{
+      label:t.name,data:PSA_MONTHS.map(mk=>+(tmTotal(mk,t.code)/60).toFixed(1)),
+      borderColor:col,backgroundColor:col+'22',borderWidth:2.2,pointRadius:3.5,
+      pointBackgroundColor:col,pointBorderColor:'#fff',pointBorderWidth:1.5,tension:0.35,fill:false};})},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmtNum(c.raw)+'h'}}},
+      scales:{x:{ticks:{color:TC,font:{size:10}},grid:{display:false}},y:{ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC}}}}});
+  document.getElementById('ovleg').innerHTML=curTeams().map((t,idx)=>{const col=TRENDCOLORS[idx%TRENDCOLORS.length];return`<div class="legitem"><div class="legdot" style="background:${col}"></div><span style="color:${col};font-weight:500">${t.name}</span></div>`;}).join('');
+
+  if(document.getElementById('psaCodeAll')){
+    dc('psaCodeAll');
+    CH['psaCodeAll']=new Chart(document.getElementById('psaCodeAll'),{type:'bar',
+      data:{labels:LL_CODES,datasets:[{
+        data:LL_CODES.map(c=>+(psaCodeAll(c)/60).toFixed(1)),
+        backgroundColor:LL_CODE_COLORS,borderRadius:4
+      }]},
+      options:{responsive:true,maintainAspectRatio:false,
+        layout:{padding:{top:20}},
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'Code '+c.label+': '+fmtNum(c.raw)+' hrs'}},
+          valueLabels:{display:true,color:'#5f5e5a',font:'bold 10px',format:v=>fmtNum(v)+'h'}},
+        scales:{x:{ticks:{color:TC,font:{size:11}},grid:{display:false}},y:{ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC}}}}});
+  }
+
+  const allMax=Math.max(1,...curTeams().map(t=>teamAllPSA(t.code)));
+  const lastMk=PSA_MONTHS[PSA_MONTHS.length-1];
+  let tbl=`<thead><tr><th>Team</th><th>Airlines</th><th style="text-align:right">คน (${lastMk})</th>`;
+  PSA_MONTHS.forEach(mk=>tbl+=`<th style="text-align:right">${mk}</th>`);
+  tbl+='<th style="text-align:right">Grand total</th><th style="text-align:right" title="OT hours per headcount last month">hr/คน</th></tr></thead><tbody>';
+  [...curTeams()].sort((a,b)=>teamAllPSA(b.code)-teamAllPSA(a.code)).forEach(t=>{
+    const tot=teamAllPSA(t.code),pct=Math.round(tot/allMax*100);
+    const hc=manpowerTeam(t.code,lastMk);
+    const lastOT=tmTotal(lastMk,t.code);
+    const otPerCap=hc>0?(lastOT/60/hc).toFixed(1):'-';
+    tbl+=`<tr><td><span class="badge" style="background:${t.color}22;color:${t.color}">${t.name}</span></td><td style="color:var(--txt-2);font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis">${t.airlines}</td>`;
+    tbl+=`<td style="text-align:right;font-weight:500;color:${hc>0?'#475569':'var(--txt-3)'}">${hc>0?hc:'-'}</td>`;
+    PSA_MONTHS.forEach(mk=>tbl+=`<td style="text-align:right">${fmtH(tmTotal(mk,t.code))}</td>`);
+    tbl+=`<td style="text-align:right"><div class="barcell"><div class="barbg"><div class="barfill" style="width:${pct}%;background:${t.color}"></div></div><span style="min-width:55px;text-align:right;font-weight:500">${fmtH(tot)}</span></div></td>`;
+    tbl+=`<td style="text-align:right;font-size:11px;color:var(--txt-2)">${otPerCap}</td></tr>`;
+  });
+  const totalHc=curTeams().reduce((a,t)=>a+manpowerTeam(t.code,lastMk),0);
+  tbl+='<tr class="tot"><td colspan="2">Grand Total</td>';
+  tbl+=`<td style="text-align:right">${totalHc} คน</td>`;
+  PSA_MONTHS.forEach(mk=>tbl+=`<td style="text-align:right">${fmtH(mTotalPSA(mk))}</td>`);
+  tbl+=`<td style="text-align:right">${fmtH(allTotalPSA())}</td><td></td></tr></tbody>`;
+  document.getElementById('ovtbl').innerHTML=tbl;
+}
+
+function renderPSAMonth(mk){
+  const d=PSA_DATA[mk];if(!d){document.getElementById('content').innerHTML='<div class="card">No data</div>';return;}
+  const gt=mTotalPSA(mk),top=topTmMonthPSA(mk);
+  const wTots=d.weeks.map((w,wi)=>curTeams().reduce((a,t)=>a+toMin(d.teams[t.code]?d.teams[t.code].hours[wi]:'0:00'),0));
+  const peakIdx=wTots.indexOf(Math.max(...wTots));
+  const a7min=psaCodeMonth(mk,'A7');
+  document.getElementById('content').innerHTML=`
+  <div class="g5">
+    <div class="metric"><div class="metric-l">Total OT — ${mk}</div><div class="metric-v">${fmtH(gt)}</div><div class="metric-s">all teams</div></div>
+    <div class="metric"><div class="metric-l">Top team</div><div class="metric-v" style="font-size:14px">${top.name}</div><div class="metric-s">${fmtH(top.min)} hrs</div></div>
+    <div class="metric"><div class="metric-l">Peak week</div><div class="metric-v" style="font-size:13px">${d.weeks[peakIdx]?d.weeks[peakIdx].split(':')[1]?.trim():'-'}</div><div class="metric-s">${fmtH(wTots[peakIdx])} hrs</div></div>
+    <div class="metric"><div class="metric-l">Headcount</div><div class="metric-v">${manpowerMonth(mk,'PSA')||'-'}</div><div class="metric-s">KP dept end of ${mk}</div></div>
+    <div class="metric"><div class="metric-l">Total flights</div><div class="metric-v">${deptFlightsMonth(mk).toLocaleString('en-US')}</div><div class="metric-s">${mk}</div></div>
+  </div>
+  ${HOLIDAYS[mk]?`<div class="card" style="background:#fef3c7;border-color:#fcd34d;padding:12px 16px;margin-bottom:1rem"><div style="font-size:12px;color:#a16207;line-height:1.4;font-weight:500">${HOLIDAYS[mk]}${a7min>0?` <span style="color:#dc2626">— Holiday OT (A7) ${fmtH(a7min)} hrs</span>`:''}</div></div>`:''}
+  <div class="card"><div class="card-t">OT vs Flights — ${mk}</div><div style="position:relative;width:100%;height:300px"><canvas id="mChart"></canvas></div></div>
+  ${(dept!=='LP'&&d.codes&&Object.keys(d.codes).length>0)?`<div class="card"><div class="card-t">KP Code breakdown (A1–A8) — ${mk}</div><div style="position:relative;width:100%;height:260px"><canvas id="psaCodeMonth"></canvas></div></div>`:''}
+  <div class="card"><div class="card-t">Team breakdown — weekly detail</div><div class="tw"><table id="mtbl"></table></div></div>`;
+
+  dc('mChart');
+  // Total OT per week for the active department's teams. (A1–A8 codes are a
+  // PSA-wide aggregate and can't be attributed to KP vs LP per team, so the
+  // weekly bar shows total OT rather than a wrong Regular/Holiday split.)
+  const weekly=d.weeks.map((w,wi)=>curTeams().reduce((a,t)=>a+(d.teams[t.code]?toMin(d.teams[t.code].hours[wi]):0),0)/60);
+  CH['mChart']=new Chart(document.getElementById('mChart'),{type:'bar',
+    data:{labels:d.weeks,datasets:[
+      {label:'OT Hours',data:weekly.map(v=>+v.toFixed(1)),backgroundColor:'#3b82f6',borderRadius:3,yAxisID:'y',order:2},
+      {label:'Flights',data:(dept==='LP'?d.weeks.map((w,wi)=>curTeams().reduce((a,t)=>a+(d.teams[t.code]?d.teams[t.code].flights[wi]:0),0)):d.flightCounts),type:'line',borderColor:'#ef4444',borderWidth:2.5,pointRadius:5,pointBackgroundColor:'#ef4444',tension:0.4,yAxisID:'y1',order:1,fill:false}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      layout:{padding:{top:24}},
+      plugins:{legend:{display:true,position:'top',labels:{color:TC,font:{size:11},padding:10,usePointStyle:true}},
+        tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y1'?c.dataset.label+': '+fmtNum(c.raw)+' flights':c.dataset.label+': '+fmtNum(c.raw)+' hrs'}},
+        valueLabels:{display:true,color:'#5f5e5a',font:'bold 10px',format:v=>fmtNum(v)+'h',formatLine:v=>fmtNum(v)}},
+      scales:{x:{stacked:true,ticks:{color:TC,font:{size:10}},grid:{display:false}},
+        y:{stacked:true,position:'left',min:0,ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC},title:{display:true,text:'OT Hours (Regular + Holiday)',color:TC,font:{size:11}}},
+        y1:{position:'right',min:0,ticks:{color:'#ef4444',font:{size:10}},grid:{display:false},title:{display:true,text:'Flights',color:'#ef4444',font:{size:11}}}}}});
+
+  if(document.getElementById('psaCodeMonth')){
+    dc('psaCodeMonth');
+    CH['psaCodeMonth']=new Chart(document.getElementById('psaCodeMonth'),{type:'bar',
+      data:{labels:LL_CODES,datasets:[{
+        data:LL_CODES.map(c=>+(psaCodeMonth(mk,c)/60).toFixed(1)),
+        backgroundColor:LL_CODE_COLORS,borderRadius:4
+      }]},
+      options:{responsive:true,maintainAspectRatio:false,
+        layout:{padding:{top:20}},
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'Code '+c.label+': '+fmtNum(c.raw)+' hrs'}},
+          valueLabels:{display:true,color:'#5f5e5a',font:'bold 10px',format:v=>fmtNum(v)+'h'}},
+        scales:{x:{ticks:{color:TC,font:{size:11}},grid:{display:false}},y:{ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC}}}}});
+  }
+
+  const maxTot=Math.max(1,...curTeams().map(t=>d.teams[t.code]?d.teams[t.code].hours.reduce((a,v)=>a+toMin(v),0):0));
+  let tbl='<thead><tr><th>Team</th><th>Airlines</th><th style="text-align:right">คน</th>';
+  d.weeks.forEach(w=>tbl+=`<th colspan="2" style="text-align:center;border-right:0.5px solid var(--br)">${w.split(':')[1]?.trim()||w}</th>`);
+  tbl+='<th style="text-align:right">Total</th><th style="text-align:right" title="OT hrs per person">hr/คน</th></tr><tr><th></th><th></th><th></th>';
+  d.weeks.forEach(()=>{tbl+=`<th style="text-align:center;font-size:10px;color:var(--txt-3)">OT</th><th style="text-align:center;font-size:10px;color:var(--txt-3);border-right:0.5px solid var(--br)">Flights</th>`;});
+  tbl+='<th></th><th></th></tr></thead><tbody>';
+  [...curTeams()].sort((a,b)=>{const ta=d.teams[a.code]?d.teams[a.code].hours.reduce((s,v)=>s+toMin(v),0):0;const tb=d.teams[b.code]?d.teams[b.code].hours.reduce((s,v)=>s+toMin(v),0):0;return tb-ta;}).forEach(t=>{
+    if(!d.teams[t.code])return;
+    const vals=d.teams[t.code].hours,flights=d.teams[t.code].flights||d.weeks.map(()=>0);
+    const tot=vals.reduce((a,v)=>a+toMin(v),0),pct=Math.round(tot/maxTot*100);
+    const hc=manpowerTeam(t.code,mk);
+    const otPerCap=hc>0?(tot/60/hc).toFixed(1):'-';
+    tbl+=`<tr><td><span class="badge" style="background:${t.color}22;color:${t.color}">${t.name}</span></td><td style="color:var(--txt-2);font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis">${t.airlines}</td>`;
+    tbl+=`<td style="text-align:right;font-weight:500;color:${hc>0?'#475569':'var(--txt-3)'}">${hc>0?hc:'-'}</td>`;
+    vals.forEach((v,wi)=>{tbl+=`<td style="text-align:center;font-size:11px">${v||'0:00'}</td><td style="text-align:center;font-size:11px;color:var(--txt-2);border-right:0.5px solid var(--br)">${(flights[wi]||0).toLocaleString('en-US')}</td>`;});
+    tbl+=`<td style="text-align:right"><div class="barcell"><div class="barbg"><div class="barfill" style="width:${pct}%;background:${t.color}"></div></div><span style="min-width:55px;text-align:right;font-weight:500">${fmtH(tot)}</span></div></td>`;
+    tbl+=`<td style="text-align:right;font-size:11px;color:var(--txt-2)">${otPerCap}</td></tr>`;
+  });
+  const wt=d.weeks.map((w,wi)=>curTeams().reduce((a,t)=>a+(d.teams[t.code]?toMin(d.teams[t.code].hours[wi]||'0:00'):0),0));
+  const totalHc=curTeams().reduce((a,t)=>a+manpowerTeam(t.code,mk),0);
+  tbl+='<tr class="tot"><td colspan="2">Grand Total</td>';
+  tbl+=`<td style="text-align:right">${totalHc} คน</td>`;
+  wt.forEach((v,wi)=>{tbl+=`<td style="text-align:center">${fmtH(v)}</td><td style="text-align:center;border-right:0.5px solid var(--br)">${(d.flightCounts[wi]||0).toLocaleString('en-US')}</td>`;});
+  tbl+=`<td style="text-align:right">${fmtH(gt)}</td><td></td></tr></tbody>`;
+  document.getElementById('mtbl').innerHTML=tbl;
+}
+
+/* ============== LL RENDERING ============== */
+function renderLLOverview(){
+  if(LL_MONTH_LIST.length===0){
+    document.getElementById('content').innerHTML=`
+    <div class="card" style="text-align:center;padding:40px 20px">
+      <div style="font-size:14px;color:var(--txt-2);margin-bottom:14px">ยังไม่มีข้อมูล LL — กดปุ่ม Refresh All เพื่อดึงข้อมูล</div>
+    </div>`;
+    return;
+  }
+  const total=llTotalAll(),top=llTopCatAll(),peak=llPeakMo();
+  const months=LL_MONTH_LIST;
+  document.getElementById('content').innerHTML=combinedSummaryCard()+`
+  <div class="g4">
+    <div class="metric"><div class="metric-l">Grand total</div><div class="metric-v">${fmtH(total)}</div><div class="metric-s">${months.length} months</div></div>
+    <div class="metric"><div class="metric-l">Top category</div><div class="metric-v" style="font-size:14px">${top.name}</div><div class="metric-s">${fmtH(top.min)} hrs</div></div>
+    <div class="metric"><div class="metric-l">Peak month</div><div class="metric-v" style="font-size:14px">${peak.name}</div><div class="metric-s">${fmtH(peak.min)} hrs</div></div>
+    <div class="metric"><div class="metric-l">Categories</div><div class="metric-v">3</div><div class="metric-s">LL / Porter / Admin</div></div>
+  </div>
+  <div class="card"><div class="card-t">Total OT per month — by category</div><div style="position:relative;width:100%;height:280px"><canvas id="llMo"></canvas></div></div>
+  <div class="card"><div class="card-t">Monthly trend by category</div><div style="position:relative;width:100%;height:260px"><canvas id="llTrend"></canvas></div></div>
+  <div class="card"><div class="card-t">By Code (A1–A8) — all months combined</div><div style="position:relative;width:100%;height:240px"><canvas id="llCode"></canvas></div></div>
+  <div class="card"><div class="card-t">LL — Monthly summary</div><div class="tw"><table id="llTbl"></table></div></div>
+  <div class="card"><div class="card-t">LL Headcount — by position (Oct 2025 – May 2026)</div><div class="tw"><table id="llHcTbl"></table></div><div style="font-size:11px;color:var(--txt-2);margin-top:6px">💡 "Working Total" = excl. Mgr / Assit Mgr / Act Assit Mgr (ใช้ใน Executive Summary)</div></div>`;
+
+  renderCombinedCharts();
+  dc('llMo');
+  CH['llMo']=new Chart(document.getElementById('llMo'),{type:'bar',
+    data:{labels:months,datasets:LL_CATS.map(c=>({
+      label:c.code,data:months.map(mk=>+(llCatMonth(mk,c.code)/60).toFixed(1)),
+      backgroundColor:c.color,borderRadius:3
+    }))},
+    options:{responsive:true,maintainAspectRatio:false,
+      layout:{padding:{top:20}},
+      plugins:{legend:{display:true,position:'top',labels:{color:TC,font:{size:11},padding:10,usePointStyle:true}},
+        tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmtNum(c.raw)+' hrs'}},
+        valueLabels:{display:true,color:'#5f5e5a',font:'bold 9px',format:v=>fmtNum(v)}},
+      scales:{x:{ticks:{color:TC,font:{size:10}},grid:{display:false}},
+        y:{beginAtZero:true,ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC}}}}});
+
+  dc('llTrend');
+  CH['llTrend']=new Chart(document.getElementById('llTrend'),{type:'line',
+    data:{labels:months,datasets:LL_CATS.map(c=>({
+      label:c.code,data:months.map(mk=>+(llCatMonth(mk,c.code)/60).toFixed(1)),
+      borderColor:c.color,backgroundColor:c.color+'22',borderWidth:2.5,pointRadius:4.5,
+      pointBackgroundColor:c.color,pointBorderColor:'#fff',pointBorderWidth:2,tension:0.35,fill:false
+    }))},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top',labels:{color:TC,font:{size:11},padding:10,usePointStyle:true}},
+        tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmtNum(c.raw)+'h'}}},
+      scales:{x:{ticks:{color:TC,font:{size:10}},grid:{display:false}},y:{ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC}}}}});
+
+  dc('llCode');
+  CH['llCode']=new Chart(document.getElementById('llCode'),{type:'bar',
+    data:{labels:LL_CODES,datasets:[{
+      data:LL_CODES.map(c=>+(llCodeAll(c)/60).toFixed(1)),
+      backgroundColor:LL_CODE_COLORS,borderRadius:4
+    }]},
+    options:{responsive:true,maintainAspectRatio:false,
+      layout:{padding:{top:20}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'Code '+c.label+': '+fmtNum(c.raw)+' hrs'}},
+        valueLabels:{display:true,color:'#5f5e5a',font:'bold 10px',format:v=>fmtNum(v)+'h'}},
+      scales:{x:{ticks:{color:TC,font:{size:11}},grid:{display:false}},y:{ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC}}}}});
+
+  let tbl='<thead><tr><th>Month</th>';
+  LL_CATS.forEach(c=>tbl+=`<th style="text-align:right">${c.code}</th>`);
+  tbl+='<th style="text-align:right">Total</th>';
+  LL_CODES.forEach(c=>tbl+=`<th style="text-align:right;font-size:10px;color:var(--txt-3)">${c}</th>`);
+  tbl+='</tr></thead><tbody>';
+  months.forEach(mk=>{
+    tbl+=`<tr><td style="font-weight:500">${mk}${LL_OVERRIDES[mk]?' <span style="font-size:9px;color:#a16207;background:#fef3c7;padding:1px 4px;border-radius:3px;margin-left:4px">edited</span>':''}</td>`;
+    LL_CATS.forEach(c=>tbl+=`<td style="text-align:right">${fmtH(llCatMonth(mk,c.code))}</td>`);
+    tbl+=`<td style="text-align:right;font-weight:500">${fmtH(llTotalMonth(mk))}</td>`;
+    LL_CODES.forEach(c=>{const v=llCodeMonth(mk,c);tbl+=`<td style="text-align:right;font-size:11px;color:${v>0?'var(--txt)':'var(--txt-3)'}">${v>0?fmtH(v):'-'}</td>`;});
+    tbl+='</tr>';
+  });
+  tbl+='<tr class="tot"><td>Grand Total</td>';
+  LL_CATS.forEach(c=>tbl+=`<td style="text-align:right">${fmtH(llCatAll(c.code))}</td>`);
+  tbl+=`<td style="text-align:right">${fmtH(llTotalAll())}</td>`;
+  LL_CODES.forEach(c=>tbl+=`<td style="text-align:right;font-size:11px">${fmtH(llCodeAll(c))}</td>`);
+  tbl+='</tr></tbody>';
+  document.getElementById('llTbl').innerHTML=tbl;
+
+  let hcTbl='<thead><tr><th>Position</th>';
+  PSA_MONTHS.forEach(mk=>hcTbl+=`<th style="text-align:right">${mk}</th>`);
+  hcTbl+='<th style="text-align:right">Latest</th></tr></thead><tbody>';
+  Object.keys(MANPOWER_LL_POSITION).forEach(pos=>{
+    const arr=MANPOWER_LL_POSITION[pos];
+    const isMgmt=LL_MGMT_POSITIONS.has(pos);
+    const lblColor=isMgmt?'#94a3b8':'#1e293b';
+    hcTbl+=`<tr${isMgmt?' style="opacity:0.7"':''}><td style="font-weight:500;color:${lblColor}">${pos}${isMgmt?' <span style="font-size:10px;font-weight:400;color:#94a3b8">(excl)</span>':''}</td>`;
+    arr.forEach(v=>hcTbl+=`<td style="text-align:right;color:#475569">${v===0?'-':v}</td>`);
+    hcTbl+=`<td style="text-align:right;font-weight:600;color:#6d28d9">${arr[arr.length-1]||'-'}</td></tr>`;
+  });
+  hcTbl+='<tr style="background:var(--bg-soft)"><td>LL Total (all positions)</td>';
+  PSA_MONTHS.forEach((_,i)=>{const t=Object.values(MANPOWER_LL_POSITION).reduce((a,arr)=>a+arr[i],0);hcTbl+=`<td style="text-align:right">${t}</td>`;});
+  const allLast=Object.values(MANPOWER_LL_POSITION).reduce((a,arr)=>a+arr[arr.length-1],0);
+  hcTbl+=`<td style="text-align:right">${allLast}</td></tr>`;
+  hcTbl+='<tr class="tot"><td>LL Working Total <span style="font-size:10px;font-weight:400">(excl. Mgr/Asst)</span></td>';
+  PSA_MONTHS.forEach((_,i)=>{
+    let t=0;Object.entries(MANPOWER_LL_POSITION).forEach(([pos,arr])=>{if(!LL_MGMT_POSITIONS.has(pos))t+=arr[i];});
+    hcTbl+=`<td style="text-align:right;font-weight:600">${t}</td>`;
+  });
+  let wkLast=0;Object.entries(MANPOWER_LL_POSITION).forEach(([pos,arr])=>{if(!LL_MGMT_POSITIONS.has(pos))wkLast+=arr[arr.length-1];});
+  hcTbl+=`<td style="text-align:right;font-weight:700;color:#6d28d9">${wkLast} คน</td></tr></tbody>`;
+  document.getElementById('llHcTbl').innerHTML=hcTbl;
+}
+
+function renderLLMonth(mk){
+  const r=llRec(mk);
+  if(!r){document.getElementById('content').innerHTML=`<div class="card">ไม่มีข้อมูล ${mk}</div>`;return;}
+  const total=llTotalMonth(mk);
+  const topCatIdx=LL_CATS.map(c=>llCatMonth(mk,c.code)).reduce((mxi,v,i,arr)=>v>arr[mxi]?i:mxi,0);
+  const a7min=llCodeMonth(mk,'A7');
+  const hasCodes=LL_CODES.some(c=>llCodeMonth(mk,c)>0);
+  document.getElementById('content').innerHTML=`
+  <div class="g4">
+    <div class="metric"><div class="metric-l">Total OT — ${mk}</div><div class="metric-v">${fmtH(total)}</div><div class="metric-s">all categories</div></div>
+    <div class="metric"><div class="metric-l">Top category</div><div class="metric-v" style="font-size:14px">${LL_CATS[topCatIdx].code}</div><div class="metric-s">${fmtH(llCatMonth(mk,LL_CATS[topCatIdx].code))} hrs</div></div>
+    <div class="metric"><div class="metric-l">LL hrs</div><div class="metric-v" style="font-size:14px;color:var(--c-LL)">${fmtH(llCatMonth(mk,'LL'))}</div><div class="metric-s">${total?Math.round(llCatMonth(mk,'LL')/total*100):0}% of total</div></div>
+    <div class="metric"><div class="metric-l">A7 Holiday OT</div><div class="metric-v" style="font-size:14px;color:#dc2626">${fmtH(llCodeMonth(mk,'A7'))}</div><div class="metric-s">${total?Math.round(llCodeMonth(mk,'A7')/total*100):0}% of total</div></div>
+  </div>
+  ${HOLIDAYS[mk]?`<div class="card" style="background:#fef3c7;border-color:#fcd34d;padding:12px 16px;margin-bottom:1rem"><div style="font-size:12px;color:#a16207;line-height:1.4;font-weight:500">${HOLIDAYS[mk]}${a7min>0?` <span style="color:#dc2626">— Holiday OT (A7) ${fmtH(a7min)} hrs</span>`:''}</div></div>`:''}
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px;flex-wrap:wrap;gap:8px">
+      <div class="card-t" style="margin:0">${Array.isArray(r.weeks)?'Weekly':'Monthly'} OT — Regular + Holiday (A7)</div>
+      <button class="btn" onclick="openEditForm('${mk}')" style="padding:5px 11px;font-size:11px">แก้ไขข้อมูล</button>
+    </div>
+    <div style="position:relative;width:100%;height:300px"><canvas id="llmWeekly"></canvas></div>
+  </div>
+  <div class="card"><div class="card-t">Category breakdown — ${mk}</div><div style="position:relative;width:100%;height:260px"><canvas id="llmCat"></canvas></div></div>
+  ${hasCodes?`<div class="card"><div class="card-t">Code breakdown (A1–A8) — ${mk}</div><div style="position:relative;width:100%;height:280px"><canvas id="llmCode"></canvas></div></div>`:`<div class="card"><div class="card-t">Code breakdown (A1–A8) — ${mk}</div><div style="padding:16px;color:var(--txt-3);font-size:12px;line-height:1.5">No code (A1–A8) breakdown yet for ${mk} — the source (OT_LL) currently holds the monthly total only. It will appear automatically once the A1–A8 split is filled in (live fetch).</div></div>`}
+  <div class="card"><div class="card-t">Detail table</div><div class="tw"><table id="llmTbl"></table></div></div>`;
+
+  dc('llmWeekly');
+  // Weekly shape → 4 week bars. Flat shape (monthly-only, e.g. May 2026) → one
+  // month bar so the chart isn't blank.
+  const isWeekly=Array.isArray(r.weeks);
+  const weekLabels=isWeekly?r.weeks.map(w=>w.week):[mk];
+  const weeklyTotal=isWeekly
+    ? weekLabels.map((wl,i)=>r.weeks[i]?(r.weeks[i].LL_min||0)+(r.weeks[i].Porter_min||0)+(r.weeks[i].Admin_min||0):0)
+    : [llTotalMonth(mk)];
+  const weeklyA7=isWeekly
+    ? weekLabels.map((wl,i)=>{
+        // Per-week A7 holiday OT. Supports both shapes: a week-keyed code block
+        // codes["Week 01"].A7 (Oct–Apr), or an A7_min field on the week object
+        // (used when only weekly category totals + weekly A7 are supplied).
+        const wk=r.weeks[i];
+        if(wk && wk.A7_min!=null) return wk.A7_min;
+        if(r.codes && r.codes[wl] && r.codes[wl].A7){
+          const a=r.codes[wl].A7;
+          return (a.LL_min||0)+(a.Porter_min||0)+(a.Admin_min||0);
+        }
+        return 0;
+      })
+    : [llCodeMonth(mk,'A7')];
+  const weeklyA7Hrs=weeklyA7.map(m=>+(m/60).toFixed(1));
+  const weeklyRegHrs=weeklyTotal.map((t,i)=>+((t-weeklyA7[i])/60).toFixed(1));
+  CH['llmWeekly']=new Chart(document.getElementById('llmWeekly'),{type:'bar',
+    data:{labels:weekLabels,datasets:[
+      {label:'Regular OT',data:weeklyRegHrs,backgroundColor:'#8b5cf6',borderRadius:3,stack:'ot',order:2},
+      {label:'Holiday OT (A7)',data:weeklyA7Hrs,backgroundColor:'#dc2626',borderRadius:3,stack:'ot',order:1},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      layout:{padding:{top:24}},
+      plugins:{legend:{display:true,position:'top',labels:{color:TC,font:{size:11},padding:10,usePointStyle:true}},
+        tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmtNum(c.raw)+' hrs'}},
+        valueLabels:{display:true,color:'#5f5e5a',font:'bold 10px',format:v=>fmtNum(v)+'h'}},
+      scales:{x:{stacked:true,ticks:{color:TC,font:{size:11}},grid:{display:false}},
+        y:{stacked:true,beginAtZero:true,ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC},title:{display:true,text:'OT Hours (Regular + Holiday)',color:TC,font:{size:11}}}}}});
+
+  dc('llmCat');
+  CH['llmCat']=new Chart(document.getElementById('llmCat'),{type:'bar',
+    data:{labels:['LL','Porter','Admin'],datasets:[{
+      data:LL_CATS.map(c=>+(llCatMonth(mk,c.code)/60).toFixed(1)),
+      backgroundColor:LL_CATS.map(c=>c.color),borderRadius:4
+    }]},
+    options:{responsive:true,maintainAspectRatio:false,
+      layout:{padding:{top:20}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+fmtNum(c.raw)+' hrs'}},
+        valueLabels:{display:true,color:'#5f5e5a',font:'bold 11px',format:v=>fmtNum(v)+'h'}},
+      scales:{x:{ticks:{color:TC,font:{size:12}},grid:{display:false}},y:{beginAtZero:true,ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC}}}}});
+
+  if(hasCodes){
+  dc('llmCode');
+  CH['llmCode']=new Chart(document.getElementById('llmCode'),{type:'bar',
+    data:{labels:LL_CODES,datasets:LL_CATS.map(c=>({
+      label:c.code,
+      data:LL_CODES.map(code=>+(llCodeCatMonth(mk,code,c.code)/60).toFixed(1)),
+      backgroundColor:c.color,borderRadius:2
+    }))},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top',labels:{color:TC,font:{size:11},padding:10,usePointStyle:true,boxWidth:8}},
+        tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.dataset.label+': '+fmtNum(c.raw)+' hrs'}}},
+      scales:{x:{stacked:true,ticks:{color:TC,font:{size:11}},grid:{display:false}},y:{stacked:true,ticks:{color:TC,font:{size:10},callback:v=>fmtNum(v)+'h'},grid:{color:GC}}}}});
+  }
+
+  let tbl='<thead><tr><th>Code</th>';
+  LL_CATS.forEach(c=>tbl+=`<th style="text-align:right">${c.code}</th>`);
+  tbl+='<th style="text-align:right">Sub Total</th></tr></thead><tbody>';
+  LL_CODES.forEach(code=>{
+    const llV=llCodeCatMonth(mk,code,'LL');
+    const poV=llCodeCatMonth(mk,code,'Porter');
+    const adV=llCodeCatMonth(mk,code,'Admin');
+    const tot=llV+poV+adV;
+    tbl+=`<tr><td style="font-weight:500;color:var(--c-ll)">${code}</td>`;
+    [llV,poV,adV].forEach(v=>{tbl+=`<td style="text-align:right${v?'':';color:var(--txt-3)'}">${v?fmtH(v):'-'}</td>`;});
+    tbl+=`<td style="text-align:right;font-weight:500">${tot?fmtH(tot):'-'}</td></tr>`;
+  });
+  tbl+='<tr class="tot"><td>Total</td>';
+  LL_CATS.forEach(c=>tbl+=`<td style="text-align:right">${fmtH(llCatMonth(mk,c.code))}</td>`);
+  tbl+=`<td style="text-align:right">${fmtH(total)}</td></tr></tbody>`;
+  document.getElementById('llmTbl').innerHTML=tbl;
+}
+
+/* ============== EDIT FORM ============== */
+let editingMk=null;
+window.openEditForm=function(mk){
+  editingMk=mk;
+  document.getElementById('editTitle').textContent='แก้ไขข้อมูล LL — '+mk;
+  const r=llRec(mk);
+  if(!r)return;
+  let h='<div class="edit-section"><div class="edit-section-t">Category Totals (HH:MM)</div>';
+  h+='<div class="edit-grid"><div class="edit-grid-h lbl">หมวด</div><div class="edit-grid-h">LL</div><div class="edit-grid-h">Porter</div><div class="edit-grid-h">Admin</div></div>';
+  h+=`<div class="edit-grid"><div class="edit-row-l">${mk} Total</div>
+    <input class="edit-input" id="ed-LL" value="${fmtH(llCatMonth(mk,'LL'))}" placeholder="0:00">
+    <input class="edit-input" id="ed-Porter" value="${fmtH(llCatMonth(mk,'Porter'))}" placeholder="0:00">
+    <input class="edit-input" id="ed-Admin" value="${fmtH(llCatMonth(mk,'Admin'))}" placeholder="0:00">
+  </div></div>`;
+  h+='<div class="edit-section"><div class="edit-section-t">Code Breakdown (A1–A8)</div>';
+  h+='<div class="code-grid"><div class="code-grid-h lbl">Code</div><div class="code-grid-h">LL</div><div class="code-grid-h">Porter</div><div class="code-grid-h">Admin</div></div>';
+  LL_CODES.forEach(code=>{
+    const ll=llCodeCatMonth(mk,code,'LL'),po=llCodeCatMonth(mk,code,'Porter'),ad=llCodeCatMonth(mk,code,'Admin');
+    h+=`<div class="code-grid"><div class="code-row-l">${code}</div>
+      <input class="code-input" data-code="${code}" data-cat="LL" value="${ll?fmtH(ll):''}" placeholder="0:00">
+      <input class="code-input" data-code="${code}" data-cat="Porter" value="${po?fmtH(po):''}" placeholder="0:00">
+      <input class="code-input" data-code="${code}" data-cat="Admin" value="${ad?fmtH(ad):''}" placeholder="0:00">
+    </div>`;
+  });
+  h+='</div>';
+  document.getElementById('editBody').innerHTML=h;
+  document.getElementById('editModal').classList.add('show');
+};
+window.closeEditForm=function(){document.getElementById('editModal').classList.remove('show');editingMk=null;};
+window.saveEditForm=function(){
+  if(!editingMk)return;
+  function p(v){if(!v)return 0;const m=v.trim().match(/^(\d+):(\d+)/);return m?parseInt(m[1])*60+parseInt(m[2]):Math.round(parseFloat(v)*60)||0;}
+  const LL=p(document.getElementById('ed-LL').value);
+  const Porter=p(document.getElementById('ed-Porter').value);
+  const Admin=p(document.getElementById('ed-Admin').value);
+  const codes={};
+  LL_CODES.forEach(code=>codes[code]={LL_min:0,Porter_min:0,Admin_min:0});
+  document.querySelectorAll('#editBody .code-input').forEach(inp=>{
+    const code=inp.dataset.code,cat=inp.dataset.cat,v=p(inp.value);
+    codes[code][cat+'_min']=v;
+  });
+  LL_OVERRIDES[editingMk]={LL_min:LL,Porter_min:Porter,Admin_min:Admin,Total_min:LL+Porter+Admin,codes,weeks:undefined};
+  try{localStorage.setItem('ot_dashboard_ll_overrides',JSON.stringify(LL_OVERRIDES));}catch(e){}
+  closeEditForm();
+  go(page);
+  showNotice('✓ บันทึก '+editingMk+' (override) สำเร็จ','success');
+};
+window.resetMonthOverride=function(){
+  if(!editingMk)return;
+  if(!confirm('ลบการแก้ไขของ '+editingMk+' และกลับไปใช้ข้อมูลเดิม?'))return;
+  delete LL_OVERRIDES[editingMk];
+  try{localStorage.setItem('ot_dashboard_ll_overrides',JSON.stringify(LL_OVERRIDES));}catch(e){}
+  closeEditForm();
+  go(page);
+};
+
+/* ============== EXPORT ============== */
+window.exportCsv=function(){
+  const rows=[];
+  rows.push(['OT Dashboard — '+(dept==='LL'?'LL Categories':(dept==='LP'?'LP Teams':'KP Teams')),'Generated '+new Date().toISOString()]);
+  rows.push([]);
+  if(dept!=='LL'){
+    rows.push(['KP Summary','',...PSA_MONTHS,'Grand Total']);
+    [...curTeams()].sort((a,b)=>teamAllPSA(b.code)-teamAllPSA(a.code)).forEach(t=>{
+      rows.push([t.name,t.airlines,...PSA_MONTHS.map(mk=>fmtH(tmTotal(mk,t.code))),fmtH(teamAllPSA(t.code))]);
+    });
+    rows.push(['Grand Total','',...PSA_MONTHS.map(mk=>fmtH(mTotalPSA(mk))),fmtH(allTotalPSA())]);
+    rows.push([]);rows.push(['Flights per month','',...PSA_MONTHS.map(mk=>PSA_DATA[mk].flightCounts.reduce((a,b)=>a+b,0)),'']);
+  }else{
+    rows.push(['LL Summary','LL','Porter','Admin','Total',...LL_CODES]);
+    LL_MONTH_LIST.forEach(mk=>{
+      rows.push([mk,fmtH(llCatMonth(mk,'LL')),fmtH(llCatMonth(mk,'Porter')),fmtH(llCatMonth(mk,'Admin')),fmtH(llTotalMonth(mk)),...LL_CODES.map(c=>fmtH(llCodeMonth(mk,c)))]);
+    });
+    rows.push(['Grand Total',fmtH(llCatAll('LL')),fmtH(llCatAll('Porter')),fmtH(llCatAll('Admin')),fmtH(llTotalAll()),...LL_CODES.map(c=>fmtH(llCodeAll(c)))]);
+  }
+  const csv=rows.map(r=>r.map(c=>{const s=String(c||'');return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`OT-${dept}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();URL.revokeObjectURL(a.href);
+  showNotice('✓ Export CSV สำเร็จ','success');
+};
+window.backupJson=function(){
+  const blob=new Blob([JSON.stringify({PSA:PSA_DATA,LL:LL_DATA,Overrides:LL_OVERRIDES,exported:new Date().toISOString()},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`OT-Dashboard-backup_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();URL.revokeObjectURL(a.href);
+  showNotice('✓ Backup สำเร็จ','success');
+};
+window.downloadStandalone=function(){
+  showNotice('กำลังเตรียมไฟล์ standalone...','info');
+  try{
+    const doctype='<!DOCTYPE html>\n';
+    const html=document.documentElement.outerHTML;
+    const blob=new Blob([doctype+html],{type:'text/html;charset=utf-8'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`OT-Dashboard-Executive_${new Date().toISOString().slice(0,10)}.html`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),500);
+    showNotice('✓ ดาวน์โหลด HTML ฉบับ Executive สำเร็จ','success');
+  }catch(err){
+    showNotice('✗ '+err.message,'error');
+  }
+};
+
+/* ============== AUTO-REFRESH ============== */
+let AUTO_ON=true;
+let AUTO_TIMER=null;
+let LAST_AUTO_AT=0;
+let LAST_HIDDEN_AT=0;
+
+function setupAutoRefresh(){
+  if(AUTO_TIMER)clearInterval(AUTO_TIMER);
+  if(AUTO_ON){
+    AUTO_TIMER=setInterval(()=>{
+      if(document.visibilityState==='visible'){autoRefreshAll();}
+    },AUTO_REFRESH_INTERVAL_MIN*60*1000);
+  }
+  document.getElementById('autoLbl').textContent=AUTO_ON?'Auto: ON · '+AUTO_REFRESH_INTERVAL_MIN+' min':'Auto: OFF';
+  document.getElementById('btnAuto').classList.toggle('success',AUTO_ON);
+}
+
+window.toggleAutoRefresh=function(){
+  AUTO_ON=!AUTO_ON;
+  try{localStorage.setItem('ot_dashboard_auto',AUTO_ON?'1':'0');}catch(e){}
+  setupAutoRefresh();
+  showNotice(AUTO_ON?('✓ เปิด Auto-refresh ทุก '+AUTO_REFRESH_INTERVAL_MIN+' นาที'):'⏸ ปิด Auto-refresh','info');
+};
+
+async function autoRefreshAll(){
+  LAST_AUTO_AT=Date.now();
+  if(fetchFromAppsScript())return;
+  if(!window.cowork||!window.cowork.callMcpTool)return;
+  if(TEMPLATE_FILE_ID){
+    try{await refreshFromTemplate(true);go(page);}catch(e){}
+  }else{
+    try{await refreshLL();}catch(e){}
+  }
+}
+
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden'){LAST_HIDDEN_AT=Date.now();return;}
+  if(document.visibilityState==='visible'&&AUTO_ON){
+    const hiddenFor=LAST_HIDDEN_AT?(Date.now()-LAST_HIDDEN_AT):0;
+    if(hiddenFor>=VISIBILITY_REFRESH_THRESHOLD_MS){autoRefreshAll();}
+  }
+});
+
+/* ============== INIT ============== */
+const HARDCODED_LL_MONTHS = Object.keys(LL_DATA).length;
+function loadOverrides(){
+  try{const s=localStorage.getItem('ot_dashboard_ll_overrides');if(s)LL_OVERRIDES=JSON.parse(s);}catch(e){}
+  try{
+    const c=localStorage.getItem('ot_dashboard_ll_last');
+    if(c){
+      const o=JSON.parse(c);
+      // Merge cached months over the hardcoded baseline instead of replacing it.
+      // A stale cache (e.g. one saved before May was filled in) can no longer
+      // wipe out a curated month — applyLiveLL only overrides months that
+      // actually carry data, so the baseline stays as the floor.
+      if(o.data&&typeof o.data==='object'){
+        applyLiveLL(o.data);
+        if(o.at)document.getElementById('lastUpdate').textContent='cache: '+new Date(o.at).toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'});
+      }else{
+        localStorage.removeItem('ot_dashboard_ll_last');
+      }
+    }
+  }catch(e){}
+  try{const a=localStorage.getItem('ot_dashboard_auto');if(a==='0')AUTO_ON=false;}catch(e){}
+  try{TEMPLATE_FILE_ID=localStorage.getItem('ot_dashboard_template_id')||'';}catch(e){}
+}
+
+// Apply live PSA data (from getPSAData_) onto months the dashboard already
+// tracks. Updates each team's weekly OT hours and the A1–A8 code breakdown from
+// the OT-Yearly sheet; flight counts are left untouched (they come from the
+// Flight Feed). Months not already in PSA_DATA are skipped on purpose — their
+// manpower baseline isn't in these sheets, so they're added deliberately, not
+// auto-spawned half-populated.
+function applyLivePSA(psa){
+  if(!psa||typeof psa!=='object')return 0;
+  const hm=min=>{const h=Math.floor((min||0)/60),x=Math.round((min||0)%60);return h+':'+String(x).padStart(2,'0');};
+  let n=0,added=0;
+  Object.keys(psa).forEach(mk=>{
+    if(mk.charAt(0)==='_')return;
+    const m=psa[mk]; if(!m||typeof m!=='object')return;
+    let rec=PSA_DATA[mk];
+    if(!rec){
+      // New month appearing in the sheet — add it automatically (only once it
+      // actually carries OT, so empty future months don't spawn blank tabs).
+      const total=m.teams?Object.keys(m.teams).reduce((s,t)=>s+(m.teams[t]||[]).reduce((a,b)=>a+(b||0),0),0):0;
+      if(total<=0)return;
+      const wl=(m.weekLabels&&m.weekLabels.length===4)
+        ? m.weekLabels.map((w,i)=>'W'+(i+1)+': '+String(w).replace(/\s*20\d{2}\s*$/,'').trim())
+        : ['W1','W2','W3','W4'];
+      rec={weeks:wl,flightCounts:[0,0,0,0],teams:{},codes:{}};
+      TEAMS.forEach(t=>{rec.teams[t.code]={hours:['0:00','0:00','0:00','0:00'],flights:[0,0,0,0]};});
+      PSA_DATA[mk]=rec; added++;
+    }
+    if(m.teams){
+      Object.keys(m.teams).forEach(tc=>{
+        if(!rec.teams[tc])rec.teams[tc]={hours:['0:00','0:00','0:00','0:00'],flights:[0,0,0,0]};
+        const mins=m.teams[tc]||[];
+        rec.teams[tc].hours=[0,1,2,3].map(i=>hm(mins[i]||0));
+      });
+    }
+    if(m.codes&&Object.keys(m.codes).length){
+      const nc={};
+      Object.keys(m.codes).forEach(cc=>{nc[cc]={mins:[0,1,2,3].map(i=>(m.codes[cc]||[])[i]||0)};});
+      rec.codes=nc;
+    }
+    n++;
+  });
+  if(added){
+    // Rebuild the month list (sorted, months with OT) and grow the manpower
+    // tables + month colours so the new month renders and its headcount slot
+    // exists (carried from the prior month until applyLiveManpower fills it).
+    const sorted=buildMonthList(PSA_DATA).filter(k=>{const d=PSA_DATA[k];return d&&d.teams&&Object.keys(d.teams).some(t=>d.teams[t].hours.some(h=>toMin(h)>0));});
+    if(sorted.length){PSA_MONTHS.length=0;sorted.forEach(k=>PSA_MONTHS.push(k));}
+    [MANPOWER_DEPT,MANPOWER_TEAM,MANPOWER_LL_POSITION,MANPOWER_LL_TEAM].forEach(obj=>Object.keys(obj).forEach(k=>{const a=obj[k];while(a.length<PSA_MONTHS.length)a.push(a[a.length-1]);}));
+    while(MCOLS.length<PSA_MONTHS.length)MCOLS.push(MCOLS[MCOLS.length-1]);
+    MANPOWER_DEPT.PSA=PSA_MONTHS.map((_,i)=>PSA_TEAMS.reduce((s,c)=>s+(MANPOWER_TEAM[c][i]||0),0));
+    MANPOWER_DEPT.LP =PSA_MONTHS.map((_,i)=>LP_TEAMS.reduce((s,c)=>s+(MANPOWER_TEAM[c][i]||0),0));
+    MANPOWER_DEPT.LL =PSA_MONTHS.map((_,i)=>LL_TEAMS.reduce((s,c)=>s+(MANPOWER_LL_TEAM[c][i]||0),0));
+  }
+  return n;
+}
+
+// Apply the live roster headcount (getManpowerData_) onto the latest month.
+// The roster is a current snapshot, so it updates the last month's per-team
+// counts (KP/LP via MANPOWER_TEAM, LL via MANPOWER_LL_TEAM) and recomputes the
+// department totals. Teams the roster doesn't report keep their prior value.
+function applyLiveManpower(mp){
+  if(!mp||typeof mp!=='object'||mp._error||!mp.teams)return 0;
+  const idx=PSA_MONTHS.length-1; let n=0;
+  Object.keys(mp.teams).forEach(t=>{
+    const cnt=mp.teams[t]||0;
+    if(MANPOWER_TEAM[t]){MANPOWER_TEAM[t][idx]=cnt;n++;}
+    else if(MANPOWER_LL_TEAM[t]){MANPOWER_LL_TEAM[t][idx]=cnt;n++;}
+  });
+  if(n){
+    MANPOWER_DEPT.PSA=PSA_MONTHS.map((_,i)=>PSA_TEAMS.reduce((s,c)=>s+(MANPOWER_TEAM[c][i]||0),0));
+    MANPOWER_DEPT.LP =PSA_MONTHS.map((_,i)=>LP_TEAMS.reduce((s,c)=>s+(MANPOWER_TEAM[c][i]||0),0));
+    MANPOWER_DEPT.LL =PSA_MONTHS.map((_,i)=>LL_TEAMS.reduce((s,c)=>s+(MANPOWER_LL_TEAM[c][i]||0),0));
+  }
+  return n;
+}
+
+// ========== Apps Script live-fetch bridge ==========
+function applyServerData(srv){
+  try{
+    if(!srv||typeof srv!=='object')return;
+    const summary=[];
+    if(srv.LL && Object.keys(srv.LL).length>0 && !srv.LL._error){
+      applyLiveLL(srv.LL);
+      summary.push('LL '+Object.keys(LL_DATA).length+' เดือน');
+    }
+    if(srv.PSA && typeof srv.PSA==='object' && !srv.PSA._error){
+      const np=applyLivePSA(srv.PSA);
+      if(np)summary.push('KP OT '+np+' เดือน');
+    }
+    if(srv.Manpower && typeof srv.Manpower==='object' && !srv.Manpower._error){
+      const nm=applyLiveManpower(srv.Manpower);
+      if(nm)summary.push('กำลังคน '+nm+' ทีม');
+    }
+    window.LAST_FLIGHTS_RAW = srv.Flights;
+    if(srv.Flights && !srv.Flights._error){
+      let updatedMonths=0,totalActive=0,totalCancelled=0;
+      Object.keys(srv.Flights).forEach(mk=>{
+        if(mk.startsWith('_'))return;
+        const f=srv.Flights[mk];
+        if(!f||!f.flightCounts)return;
+        if(!PSA_DATA[mk])return;
+        PSA_DATA[mk].flightCounts = f.flightCounts.slice();
+        Object.keys(PSA_DATA[mk].teams).forEach(t=>{PSA_DATA[mk].teams[t].flights=[0,0,0,0];});
+        Object.keys(f.teams||{}).forEach(t=>{if(PSA_DATA[mk].teams[t])PSA_DATA[mk].teams[t].flights=f.teams[t].slice();});
+        updatedMonths++;
+        totalActive += f.flightCounts.reduce((a,b)=>a+b,0);
+        totalCancelled += (f.cancelled||0);
+      });
+      if(updatedMonths>0)summary.push('Flights '+totalActive+' เที่ยว ('+updatedMonths+' เดือน, ตัด '+totalCancelled+' Cancelled)');
+    }
+    // Surface any per-source errors so a partial fetch (e.g. only Flights) is
+    // visible instead of silently falling back to the offline baseline.
+    const errs=[];
+    const em=o=>o&&o._error?String(o._error).slice(0,120):'';
+    if(em(srv.PSA))errs.push('KP OT: '+em(srv.PSA));
+    if(em(srv.LL))errs.push('LL: '+em(srv.LL));
+    if(em(srv.Manpower))errs.push('กำลังคน: '+em(srv.Manpower));
+    if(em(srv.Flights))errs.push('Flights: '+em(srv.Flights));
+    const cachedNote = srv.cached?' (cached)':'';
+    if(errs.length)showNotice('⚠ ดึงบางส่วนไม่ได้'+cachedNote+' — '+errs.join(' • ')+(summary.length?' | สำเร็จ: '+summary.join(' • '):''),'error');
+    else showNotice('✓ ดึงข้อมูลจาก Google Sheets'+cachedNote+(summary.length?' — '+summary.join(' • '):''),'success');
+    document.getElementById('lastUpdate').textContent='Live: '+new Date().toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'})+cachedNote;
+    go(page);
+  }catch(e){
+    showNotice('✗ Apply ข้อมูลล้มเหลว: '+e.message,'error');
+  }
+}
+
+function fetchFromAppsScript(force){
+  if(typeof google==='undefined'||!google.script||!google.script.run){return false;}
+  showNotice('กำลังดึงข้อมูลจาก Google Sheets...','info');
+  const run=()=>google.script.run
+    .withSuccessHandler(applyServerData)
+    .withFailureHandler(err=>{showNotice('✗ Apps Script: '+(err&&err.message||err),'error');})
+    .getAllData();
+  // Manual refresh clears the 10-min server cache first so it always pulls fresh
+  // (skips gracefully if the deployed Code.gs has no clearCache).
+  if(force && google.script.run.clearCache){
+    google.script.run.withSuccessHandler(run).withFailureHandler(run).clearCache();
+  }else{ run(); }
+  return true;
+}
+
+const _origRefreshAll = window.refreshAll;
+window.refreshAll = async function(){
+  if(fetchFromAppsScript(true)) return;
+  if(_origRefreshAll) return _origRefreshAll();
+};
+
+(function init(){
+  loadOverrides();
+  if(Object.keys(LL_DATA).length>0){LL_MONTH_LIST = activeMonths(LL_DATA);}
+  const hdr=document.getElementById('dashHeader');
+  if(hdr) hdr.setAttribute('data-date', new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}));
+  window.addEventListener('beforeprint',()=>{Object.values(CH).forEach(c=>{try{c&&c.resize();}catch(e){}});});
+  window.addEventListener('afterprint',()=>{Object.values(CH).forEach(c=>{try{c&&c.resize();}catch(e){}});});
+  updateTemplateLabel();
+  const hs=document.getElementById('hdr-sub');
+  if(hs&&PSA_MONTHS.length)hs.textContent='KP — Overtime by team (weekly) • '+PSA_MONTHS[0]+' – '+PSA_MONTHS[PSA_MONTHS.length-1];
+  renderTabs();
+  renderPSAOverview();
+  setupAutoRefresh();
+  setTimeout(()=>{
+    if(typeof google!=='undefined'&&google.script&&google.script.run){fetchFromAppsScript();return;}
+    function tryAutoFetch(retries){
+      if(!TEMPLATE_FILE_ID){return;}
+      if(!window.cowork||!window.cowork.callMcpTool){
+        if(retries>0){setTimeout(()=>tryAutoFetch(retries-1),700);return;}
+        return;
+      }
+      if(_origRefreshAll)_origRefreshAll();
+    }
+    tryAutoFetch(5);
+  },350);
+})();
+</script>
+</body>
+</html>

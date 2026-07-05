@@ -1,0 +1,61 @@
+name: Deploy OT Dashboard to Apps Script
+
+# Auto-syncs ot-dashboard/ (Code.gs + Index.html) to the OT Dashboard Apps
+# Script project on every push to main, and bumps the live Web App version so
+# the URL stays the same. Reuses the same clasp credentials secret as the
+# service-request workflow (CLASPRC_JSON) — the account must have edit access
+# to script 1axK7Ko7... . Set OT_CLASP_DEPLOYMENT_ID to the OT Dashboard web
+# app deployment id so the deploy updates that deployment (same URL).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ot-dashboard/**'
+      - '.github/workflows/deploy-ot-dashboard.yml'
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Also bump Web App deployment version (URL stays the same)?'
+        type: boolean
+        default: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ot-dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install clasp (v3)
+        run: npm install -g @google/clasp@^3.0.0
+
+      - name: Restore clasp credentials
+        run: |
+          echo "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        working-directory: .
+
+      - name: clasp push (source → Apps Script HEAD)
+        run: clasp push --force
+
+      - name: clasp deploy (advance live Web App version, same URL)
+        if: ${{ github.event_name == 'push' || inputs.deploy }}
+        env:
+          DEPLOYMENT_ID: ${{ secrets.OT_CLASP_DEPLOYMENT_ID }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -n "$DEPLOYMENT_ID" ]; then
+            clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "Auto-deploy ${SHA::7}"
+          else
+            echo "::warning::OT_CLASP_DEPLOYMENT_ID is not set — pushed to HEAD only."
+            echo "Set it (Deploy → Manage deployments → the web-app deployment id) to auto-update the live URL."
+          fi
