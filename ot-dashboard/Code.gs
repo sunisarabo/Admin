@@ -268,77 +268,62 @@ function readQuad_(row, c) {
   };
 }
 
+// Parse an OT_LL year tab in the current weekly-block layout. Each month is a
+// block whose header row is  [ (A empty), "JUN 2026", "Week 01".."Week 04",
+// "Total", … ]  with category rows LL/Porter/Admin/Total (weekly values in cols
+// C-F) on the left, and an A1–A8 × week × category code block on the right
+// (label at col I, per-week LL/Porter/Admin at cols 9/11/13, 15/17/19, …).
+// Returns the weekly shape the front-end LL_DATA uses:
+//   { "Jun 2026": { weeks:[{week,LL_min,Porter_min,Admin_min,Total_min}],
+//                   codes:{ "Week 01":{ A1:{LL_min,Porter_min,Admin_min},… } } } }
 function parseLLYearSheet_(sheet, year) {
   const values = sheet.getDataRange().getValues();
   const data = {};
+  const WK = ['Week 01', 'Week 02', 'Week 03', 'Week 04'];
+  const catWkCol  = [2, 3, 4, 5];                    // C-F : weekly category totals
+  const codeWkCol = [[9, 11, 13], [15, 17, 19], [21, 23, 25], [27, 29, 31]]; // LL/Porter/Admin per week
 
-  // 1) หาแถว header: col A === ปี
-  let hdrRow = -1;
   for (let r = 0; r < values.length; r++) {
-    if (String(values[r][0] || '').trim() === String(year)) { hdrRow = r; break; }
-  }
-  if (hdrRow < 0) return data;   // tab นี้ไม่ใช่ layout เดือน×code (เช่น 2025 อาจ layout ต่าง)
+    const label = String(values[r][1] || '').trim();
+    const mIdx = monthIndexFromName_(label);
+    const ym = label.match(/(20\d{2})/);
+    // month-block header: col B is "<Month> <Year>" and col C is a "Week …" label
+    if (mIdx < 0 || !ym) continue;
+    if (String(values[r][2] || '').toLowerCase().indexOf('week') < 0) continue;
+    const key = MONTH_NUM_TO_ABBR[mIdx] + ' ' + ym[1];
 
-  // 2) LEFT block — สรุปรายเดือน: col A = ชื่อเดือน, cols B-E = LL/Porter/Admin/Total
-  const summaryByMonth = {};
-  for (let r = hdrRow + 1; r < values.length; r++) {
-    const mIdx = monthIndexFromName_(values[r][0]);
-    if (mIdx < 0) continue;
-    const key = MONTH_NUM_TO_ABBR[mIdx] + ' ' + year;
-    summaryByMonth[key] = readQuad_(values[r], 1);
-  }
-
-  // 3) RIGHT blocks — month label อยู่ในแถว hdrRow ที่ cols >= 5 → เก็บ codes/codeTotal รายเดือน
-  const codeBlocks = {};
-  const hdr = values[hdrRow] || [];
-  const codeHdrRow = hdrRow + 1;
-  for (let c = 5; c < hdr.length; c++) {
-    const mIdx = monthIndexFromName_(hdr[c]);
-    if (mIdx < 0) continue;
-    const key = MONTH_NUM_TO_ABBR[mIdx] + ' ' + year;
-
-    // หา column ของ "Code" (แถวถัดจาก month label) — ปกติตรงคอลัมน์เดียวกับ label
-    let codeCol = c;
-    for (let cc = c; cc < c + 3 && cc < (values[codeHdrRow] || []).length; cc++) {
-      if (String(values[codeHdrRow][cc] || '').trim().toLowerCase() === 'code') { codeCol = cc; break; }
+    // left category rows (LL / Porter / Admin) in the next few rows
+    const catRow = { LL: null, Porter: null, Admin: null };
+    for (let rr = r + 1; rr < r + 6 && rr < values.length; rr++) {
+      const l = String(values[rr][1] || '').trim().toLowerCase();
+      if (l === 'll') catRow.LL = rr;
+      else if (l === 'porter') catRow.Porter = rr;
+      else if (l === 'admin') catRow.Admin = rr;
+      else if (l === 'total') break;
     }
+    const cm = (row, w) => row == null ? 0 : hmsToMin_(values[row][catWkCol[w]]);
+    const weeks = WK.map((wl, w) => {
+      const ll = cm(catRow.LL, w), po = cm(catRow.Porter, w), ad = cm(catRow.Admin, w);
+      return { week: wl, LL_min: ll, Porter_min: po, Admin_min: ad, Total_min: ll + po + ad };
+    });
 
-    const codes = {};
-    let codeTotal = null;
-    for (let r = codeHdrRow + 1; r < values.length; r++) {
-      const label = String(values[r][codeCol] || '').trim();
-      if (/^A[1-8]$/i.test(label)) {
-        codes[label.toUpperCase()] = readQuad_(values[r], codeCol + 1);
-      } else if (/^total$/i.test(label)) {
-        codeTotal = readQuad_(values[r], codeCol + 1);
-        break;                                   // code-block จบที่แถว Total
-      } else if (label === '' && Object.keys(codes).length >= 8) {
-        break;
+    // right code block: A1-A8 rows, label at col I (index 8)
+    const codes = { 'Week 01': {}, 'Week 02': {}, 'Week 03': {}, 'Week 04': {} };
+    for (let rr = r + 1; rr < r + 12 && rr < values.length; rr++) {
+      const c = String(values[rr][8] || '').trim().toUpperCase();
+      if (!/^A[1-8]$/.test(c)) continue;
+      for (let w = 0; w < 4; w++) {
+        const cc = codeWkCol[w];
+        codes[WK[w]][c] = {
+          LL_min:     hmsToMin_(values[rr][cc[0]]),
+          Porter_min: hmsToMin_(values[rr][cc[1]]),
+          Admin_min:  hmsToMin_(values[rr][cc[2]]),
+        };
       }
     }
-    codeBlocks[key] = { codes: codes, codeTotal: codeTotal };
+
+    if (weeks.reduce((a, x) => a + x.Total_min, 0) > 0) data[key] = { weeks: weeks, codes: codes };
   }
-
-  // 4) MERGE — รวมทุกเดือนที่มียอดสรุป หรือ มี code-block (เดือนที่มีแต่ summary เช่น June จะไม่ตกหล่น)
-  const keys = Object.keys(summaryByMonth);
-  Object.keys(codeBlocks).forEach(k => { if (keys.indexOf(k) < 0) keys.push(k); });
-  keys.forEach(key => {
-    const summary   = summaryByMonth[key] || null;
-    const cb        = codeBlocks[key] || {};
-    const codes     = cb.codes || {};
-    const codeTotal = cb.codeTotal || null;
-    const hasCodes  = Object.keys(codes).length > 0;
-    if (!hasCodes && (!summary || summary.Total_min <= 0)) return;   // ข้ามเดือนว่าง (Jul–Dec = 0)
-
-    const disc = (summary && codeTotal) ? {
-      LL_min:     summary.LL_min     - codeTotal.LL_min,
-      Porter_min: summary.Porter_min - codeTotal.Porter_min,
-      Admin_min:  summary.Admin_min  - codeTotal.Admin_min,
-      Total_min:  summary.Total_min  - codeTotal.Total_min,
-    } : null;
-
-    data[key] = { summary: summary, codes: codes, codeTotal: codeTotal, discrepancy: disc };
-  });
   return data;
 }
 
@@ -377,8 +362,8 @@ function getPSAData_() {
         found = true;
       }
     };
-    tryParse(sheets[PSA_SHEET_INDEX]);        // configured tab first
-    if (!found) sheets.forEach(tryParse);     // else scan every tab so order can change
+    sheets.forEach(tryParse);                 // scan EVERY tab and merge all months
+                                              // (month tables are spread across tabs)
     return found ? merged
                  : { _error: 'PSA: ไม่พบตาราง Team/Week หรือ Code/Week (' + sheets.length + ' tabs)' };
   } catch (e) {
