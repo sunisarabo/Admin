@@ -358,11 +358,18 @@ function getPSAData_() {
       if (!sh) return;
       const res = parsePSASheet_(sh);
       if (res && !res._error) {
-        Object.keys(res).forEach(k => { if (k[0] !== '_') merged[k] = res[k]; });
+        Object.keys(res).forEach(k => {
+          if (k[0] === '_') return;
+          const cur = merged[k];
+          // A month can appear on several tabs (drafts / partial copies). Keep
+          // the fullest one — the record with the largest month total — so a
+          // partial table can't overwrite the complete monthly figures.
+          if (!cur || (res[k].monthTotal || 0) > (cur.monthTotal || 0)) merged[k] = res[k];
+        });
         found = true;
       }
     };
-    sheets.forEach(tryParse);                 // scan EVERY tab and merge all months
+    sheets.forEach(tryParse);                 // scan EVERY tab, keep the fullest month
                                               // (month tables are spread across tabs)
     return found ? merged
                  : { _error: 'PSA: ไม่พบตาราง Team/Week หรือ Code/Week (' + sheets.length + ' tabs)' };
