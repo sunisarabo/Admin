@@ -355,22 +355,27 @@ function getPSAData_() {
     const merged = {};
     let found = false;
     const tryParse = (sh) => {
-      if (!sh) return;
-      const res = parsePSASheet_(sh);
-      if (res && !res._error) {
-        Object.keys(res).forEach(k => {
-          if (k[0] === '_') return;
-          const cur = merged[k];
-          // A month can appear on several tabs (drafts / partial copies). Keep
-          // the fullest one — the record with the largest month total — so a
-          // partial table can't overwrite the complete monthly figures.
-          if (!cur || (res[k].monthTotal || 0) > (cur.monthTotal || 0)) merged[k] = res[k];
-        });
-        found = true;
-      }
+      try {
+        if (!sh) return;
+        // Skip empty / very large tabs (raw logs) so reading them all doesn't
+        // time out the Spreadsheet service; the month-table tabs are small.
+        const lr = sh.getLastRow();
+        if (lr < 2 || lr > 2000) return;
+        const res = parsePSASheet_(sh);
+        if (res && !res._error) {
+          Object.keys(res).forEach(k => {
+            if (k[0] === '_') return;
+            const cur = merged[k];
+            // A month can appear on several tabs (drafts / partial copies). Keep
+            // the fullest one — the record with the largest month total — so a
+            // partial table can't overwrite the complete monthly figures.
+            if (!cur || (res[k].monthTotal || 0) > (cur.monthTotal || 0)) merged[k] = res[k];
+          });
+          found = true;
+        }
+      } catch (e) { /* skip a tab that errors or times out; keep the rest */ }
     };
-    sheets.forEach(tryParse);                 // scan EVERY tab, keep the fullest month
-                                              // (month tables are spread across tabs)
+    sheets.forEach(tryParse);                 // scan tabs (skip giant ones), keep fullest month
     return found ? merged
                  : { _error: 'PSA: ไม่พบตาราง Team/Week หรือ Code/Week (' + sheets.length + ' tabs)' };
   } catch (e) {
