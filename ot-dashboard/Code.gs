@@ -361,6 +361,18 @@ function getPSAData_() {
         // time out the Spreadsheet service; the month-table tabs are small.
         const lr = sh.getLastRow();
         if (lr < 2 || lr > 2000) return;
+        // Cheap probe: the per-employee OT detail tabs (one per week, ~200 rows
+        // each, very wide) never hold a Team/Week summary — reading them all is
+        // what times the fetch out. Detect them from their header labels using a
+        // tiny top-left range and skip before the expensive full getValues().
+        const probeRows = Math.min(8, lr);
+        const probeCols = Math.min(6, sh.getLastColumn());
+        if (probeCols > 0) {
+          const head = sh.getRange(1, 1, probeRows, probeCols).getValues();
+          const isDetail = head.some(r => r.some(c =>
+            /รหัสพนักงาน|ชื่อ\s*-\s*สกุล|^\s*ลำดับ\s*$/.test(String(c || ''))));
+          if (isDetail) return;
+        }
         const res = parsePSASheet_(sh);
         if (res && !res._error) {
           Object.keys(res).forEach(k => {
