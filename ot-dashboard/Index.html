@@ -1843,6 +1843,7 @@ function applyServerData(srv){
     if(srv.PSA && typeof srv.PSA==='object' && !srv.PSA._error){
       const np=applyLivePSA(srv.PSA);
       if(np)summary.push('KP OT '+np+' เดือน');
+      if(srv.PSA._weeks)summary.push('สัปดาห์ '+srv.PSA._weeks);
     }
     if(srv.Manpower && typeof srv.Manpower==='object' && !srv.Manpower._error){
       const nm=applyLiveManpower(srv.Manpower);
