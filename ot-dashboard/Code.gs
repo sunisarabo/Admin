@@ -21,6 +21,7 @@
 // ============= Config =============
 const OT_LL_FILE_ID      = '1hUzdm-CPbGrotU_CwG86C5004dCSV_Gguv_cHfLOLDA';
 const OT_YEARLY_FILE_ID  = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
+const OT_WEEKLY_FILE_ID  = '1EcONsdNUiy73ZfEAU978eKOMBN3u0qDmyYrRBlEm8EU';  // recent (un-archived) weeks live here
 const FLIGHT_FEED_FILE_ID= '1Y3ft-vkHQ5Rm2LVmq1Zz_2j8n5T8wLgCJtdBKhqfBAA';
 const MANPOWER_FILE_ID   = '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8';  // Pax Manpower roster
 const PSA_SHEET_INDEX    = 4;       // "ชีต 5" = index 4 (0-based) — แก้ถ้าไม่ตรง
@@ -352,7 +353,7 @@ const LP_TEAM_CODES_ = { PORTER: 1, PVT: 1 };
 // How many of the most-recent detail tabs to read, and how far back to look.
 // Bounds the read so the large OT-Yearly book can't time the fetch out; older
 // closed months keep their (already-correct) embedded baseline in Index.html.
-const PSA_DETAIL_TAB_CAP_ = 10;
+const PSA_DETAIL_TAB_CAP_ = 12;
 const PSA_DETAIL_MONTHS_BACK_ = 1;
 
 // Parse a session/date header like "22/06/2026-1" (Thai d/m/y) or a Date cell.
@@ -378,24 +379,33 @@ function detailTabDate_(probe) {
 
 function getPSAData_() {
   try {
-    const ss = SpreadsheetApp.openById(OT_YEARLY_FILE_ID);
     const now = new Date();
     const cutoff = new Date(now.getFullYear(), now.getMonth() - PSA_DETAIL_MONTHS_BACK_, 1);
     // Pass 1 — ultra-cheap probe (a fixed 4×12 top-left read, no getLastRow /
     // getLastColumn) to spot recent detail tabs without touching every cell of a
-    // formula-heavy book. Non-detail / tiny sheets just throw and are skipped.
+    // formula-heavy book. Recent weeks that haven't been archived yet live in OT
+    // Weekly; older weeks live in OT Yearly — so scan BOTH and dedupe by the
+    // tab's first session date (a given week sits in only one book).
     const cands = [];
-    ss.getSheets().forEach(sh => {
+    const seen = {};
+    [OT_YEARLY_FILE_ID, OT_WEEKLY_FILE_ID].forEach(fid => {
       try {
-        const d = detailTabDate_(sh.getRange(1, 1, 4, 12).getValues());
-        if (!d) return;
-        if (new Date(d.year, d.monthIdx, 1) < cutoff) return;
-        cands.push({ sh: sh, ord: d.year * 12 + d.monthIdx + d.day / 100 });
-      } catch (e) { /* sheet too small / unreadable — not a detail tab */ }
+        SpreadsheetApp.openById(fid).getSheets().forEach(sh => {
+          try {
+            const d = detailTabDate_(sh.getRange(1, 1, 4, 12).getValues());
+            if (!d) return;
+            if (new Date(d.year, d.monthIdx, 1) < cutoff) return;
+            const key = d.year + '-' + d.monthIdx + '-' + d.day;
+            if (seen[key]) return;               // same week already taken from the other book
+            seen[key] = true;
+            cands.push({ sh: sh, ord: d.year * 12 + d.monthIdx + d.day / 100 });
+          } catch (e) { /* sheet too small / unreadable — not a detail tab */ }
+        });
+      } catch (e) { /* a book we can't open — keep the other */ }
     });
     if (!cands.length) return { _error: 'PSA: ไม่พบแท็บ OT รายคน (detail) ในช่วงล่าสุด' };
     // Pass 2 — read ONLY the most-recent tabs (cap bounds the heavy reads so the
-    // large OT-Yearly book can't time the fetch out).
+    // large books can't time the fetch out).
     cands.sort((a, b) => b.ord - a.ord);
     const merged = {};
     let ok = 0;
@@ -409,6 +419,14 @@ function getPSAData_() {
       rec.monthTotal = Object.keys(rec.teams).reduce(
         (s, t) => s + rec.teams[t].reduce((a, b) => a + b, 0), 0);
     });
+    // Diagnostic: which weeks actually got data per month (so a gap like a
+    // missing week-tab is visible in the dashboard status line).
+    merged._weeks = Object.keys(merged).filter(k => k[0] !== '_').map(mk => {
+      const rec = merged[mk];
+      const have = [0, 1, 2, 3].filter(i =>
+        Object.keys(rec.teams).some(t => rec.teams[t][i] > 0)).map(i => 'W' + (i + 1));
+      return mk + '=' + (have.join('/') || '—');
+    }).join('  ');
     return merged;
   } catch (e) {
     return { _error: String(e) };
