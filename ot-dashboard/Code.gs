@@ -352,8 +352,8 @@ const LP_TEAM_CODES_ = { PORTER: 1, PVT: 1 };
 // How many of the most-recent detail tabs to read, and how far back to look.
 // Bounds the read so the large OT-Yearly book can't time the fetch out; older
 // closed months keep their (already-correct) embedded baseline in Index.html.
-const PSA_DETAIL_TAB_CAP_ = 18;
-const PSA_DETAIL_MONTHS_BACK_ = 3;
+const PSA_DETAIL_TAB_CAP_ = 10;
+const PSA_DETAIL_MONTHS_BACK_ = 1;
 
 // Parse a session/date header like "22/06/2026-1" (Thai d/m/y) or a Date cell.
 function parseSessionDate_(v) {
@@ -381,26 +381,26 @@ function getPSAData_() {
     const ss = SpreadsheetApp.openById(OT_YEARLY_FILE_ID);
     const now = new Date();
     const cutoff = new Date(now.getFullYear(), now.getMonth() - PSA_DETAIL_MONTHS_BACK_, 1);
-    // Pass 1 — cheap probe: find detail tabs in the recent window, note their date.
+    // Pass 1 — ultra-cheap probe (a fixed 4×12 top-left read, no getLastRow /
+    // getLastColumn) to spot recent detail tabs without touching every cell of a
+    // formula-heavy book. Non-detail / tiny sheets just throw and are skipped.
     const cands = [];
     ss.getSheets().forEach(sh => {
       try {
-        const lr = sh.getLastRow(), lc = Math.min(sh.getLastColumn(), 40);
-        if (lr < 5 || lc < 6) return;
-        const probe = sh.getRange(1, 1, Math.min(6, lr), lc).getValues();
-        const d = detailTabDate_(probe);
+        const d = detailTabDate_(sh.getRange(1, 1, 4, 12).getValues());
         if (!d) return;
         if (new Date(d.year, d.monthIdx, 1) < cutoff) return;
-        cands.push({ sh: sh, lc: lc, ord: d.year * 12 + d.monthIdx + d.day / 100 });
-      } catch (e) { /* skip a bad tab */ }
+        cands.push({ sh: sh, ord: d.year * 12 + d.monthIdx + d.day / 100 });
+      } catch (e) { /* sheet too small / unreadable — not a detail tab */ }
     });
     if (!cands.length) return { _error: 'PSA: ไม่พบแท็บ OT รายคน (detail) ในช่วงล่าสุด' };
-    // Pass 2 — parse the most-recent tabs (cap bounds the read).
+    // Pass 2 — read ONLY the most-recent tabs (cap bounds the heavy reads so the
+    // large OT-Yearly book can't time the fetch out).
     cands.sort((a, b) => b.ord - a.ord);
     const merged = {};
     let ok = 0;
     cands.slice(0, PSA_DETAIL_TAB_CAP_).forEach(c => {
-      try { parseDetailTab_(c.sh, c.lc, merged); ok++; } catch (e) { /* keep the rest */ }
+      try { parseDetailTab_(c.sh, merged); ok++; } catch (e) { /* keep the rest */ }
     });
     if (!ok) return { _error: 'PSA: อ่านแท็บ detail ไม่สำเร็จ' };
     Object.keys(merged).forEach(mk => {
@@ -435,8 +435,13 @@ function teamCodeFromLabel_(label) {
 // Aggregate one per-employee OT-detail tab into `merged` (month → teams/codes,
 // per-week minutes). Each session's hours are bucketed by its own date, so a
 // tab that straddles a week boundary still lands each day in the right bucket.
-function parseDetailTab_(sheet, lastCol, merged) {
-  const values = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
+function parseDetailTab_(sheet, merged) {
+  // Read only the data extent we need: employee rows (~400) + the 14 date-session
+  // [Code, Hrs] pairs (through col ~33). Capping rows/cols keeps the read light.
+  const lr = Math.min(sheet.getLastRow(), 700);
+  const lc = Math.min(sheet.getLastColumn(), 34);
+  if (lr < 5 || lc < 6) return;
+  const values = sheet.getRange(1, 1, lr, lc).getValues();
   // Header row = the one naming รหัสพนักงาน (within the first few rows).
   let hRow = -1, empCol = 0, seqCol = -1;
   for (let r = 0; r < Math.min(values.length, 8); r++) {
