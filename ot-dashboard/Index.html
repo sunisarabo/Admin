@@ -1779,6 +1779,10 @@ function applyLivePSA(psa){
       PSA_DATA[mk]=rec; added++;
     }
     if(m.teams){
+      // The live detail feed is a COMPLETE month, so clear every team's hours
+      // first (keeping flights) — a team with no OT this month must not keep a
+      // stale baseline value. Then write the live per-week hours.
+      Object.keys(rec.teams).forEach(t=>{rec.teams[t].hours=['0:00','0:00','0:00','0:00'];});
       Object.keys(m.teams).forEach(tc=>{
         if(!rec.teams[tc])rec.teams[tc]={hours:['0:00','0:00','0:00','0:00'],flights:[0,0,0,0]};
         const mins=m.teams[tc]||[];
