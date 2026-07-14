@@ -328,144 +328,24 @@ function parseLLYearSheet_(sheet, year) {
   return data;
 }
 
-// ============= PSA/KP OT Parser (REV 3 — per-employee OT detail) =============
-// OT Yearly holds one per-employee OT-detail tab per week. Layout (per the real
-// "แผนก การโดยสาร" tabs):
-//   col A = team/airline group ("EK/UO/6B/BY/FY", "EY/DV/AY", "Porter Crewsign"…)
-//   then  ลำดับ | รหัสพนักงาน | ชื่อ-สกุล | ตำแหน่ง
-//   then  14 date-session pairs — header "DD/MM/YYYY-1", each pair = [Code, Hrs]
-//   then  a weekly total and an A1–A8 legend on the right (ignored).
+// ============= PSA/KP OT Parser (REV 4 — "สรุป" summary sheet) =============
+// OT Yearly has a "สรุป" sheet holding the authoritative monthly rollups —
+// complete for every week and retained (unlike the per-employee detail tabs,
+// which get overwritten weekly). It is a grid of month blocks tiled left to
+// right; each block is:
+//     Team/Week | 1-7 Jun 2026 | 8-14 Jun 2026 | 15-21 Jun 2026 | 22-30 Jun 2026 | รวม
+//     EK/UO/…   | 285:30       | 139:30        | 24:00          | 50:00          | 499:00
+//     …  (airline groups = KP;  PORTER / PVT = LP)                              …
+//     รวม       | …
+// plus a matching "Code / Week" block (A1–A8) for the same month. Reading this
+// one small sheet is fast (no fetch timeout) and always complete.
 //
-// The old monthly "Team/Week" summary tables were often left incomplete (e.g.
-// June only had 2 weeks entered → wildly low totals), so we now compute each
-// month straight from the detail tabs. Each session's hours are bucketed into
-// W1–W4 by its OWN date, giving correct totals, the real A1–A8 split (incl. A7
-// holiday) and per-team hours.
-//
-// Output per month — the shape applyLivePSA consumes:
-//   { "Jun 2026": { teams:{EK:[w1,w2,w3,w4] min, …},
-//                   codes:{A1:[w1..w4] min, …} (KP teams only),
+// Output per month (shape applyLivePSA consumes):
+//   { "Jun 2026": { teams:{EK:[w1..w4] min,…}, codes:{A1:[w1..w4] min,…},
 //                   weekLabels:[…], monthTotal }, … }
 
-// Teams in the LP department (Porter). Everything else counts as KP — matches
-// PSA_TEAMS / LP_TEAMS in Index.html (Porter Crewsign → PORTERSIGN is KP).
-const LP_TEAM_CODES_ = { PORTER: 1, PVT: 1 };
-// How many of the most-recent detail tabs to read, and how far back to look.
-// Bounds the read so the large OT-Yearly book can't time the fetch out; older
-// closed months keep their (already-correct) embedded baseline in Index.html.
-const PSA_DETAIL_TAB_CAP_ = 12;
-const PSA_DETAIL_MONTHS_BACK_ = 1;
-
-// Parse a session/date header like "22/06/2026-1" (Thai d/m/y) or a Date cell.
-function parseSessionDate_(v) {
-  if (v instanceof Date) return { day: v.getDate(), monthIdx: v.getMonth(), year: v.getFullYear() };
-  const m = String(v == null ? '' : v).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  return m ? { day: +m[1], monthIdx: (+m[2]) - 1, year: +m[3] } : null;
-}
-
-// Detect a per-employee detail tab from a small top probe and return its first
-// session date {monthIdx, year, day}, or null if it isn't a detail sheet.
-function detailTabDate_(probe) {
-  let hasEmp = false, date = null;
-  for (let r = 0; r < probe.length; r++) {
-    for (let c = 0; c < probe[r].length; c++) {
-      const cell = probe[r][c];
-      if (!hasEmp && String(cell).indexOf('รหัสพนักงาน') >= 0) hasEmp = true;
-      if (!date) { const d = parseSessionDate_(cell); if (d) date = d; }
-    }
-  }
-  return (hasEmp && date) ? date : null;
-}
-
-const PSA_PRECOMP_KEY = 'PSA_PRECOMP_V1';   // background-computed snapshot
-
-// Heavy computation — aggregate the per-employee OT detail tabs across the given
-// books. `bookIds` is a list of file IDs (scan + dedupe by first session date so
-// a week that lives in only one book is picked up wherever it is). This is what
-// the background trigger runs; it may take a while, which is fine off the request
-// path. Returns the month→teams/codes shape + a _weeks diagnostic.
-function computePSAData_(bookIds, monthsBack, tabCap) {
-  const now = new Date();
-  const cutoff = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
-  const cands = [], seen = {};
-  bookIds.forEach(fid => {
-    try {
-      SpreadsheetApp.openById(fid).getSheets().forEach(sh => {
-        try {
-          const d = detailTabDate_(sh.getRange(1, 1, 4, 12).getValues());
-          if (!d) return;
-          if (new Date(d.year, d.monthIdx, 1) < cutoff) return;
-          const key = d.year + '-' + d.monthIdx + '-' + d.day;
-          if (seen[key]) return;                 // same week already taken from the other book
-          seen[key] = true;
-          cands.push({ sh: sh, ord: d.year * 12 + d.monthIdx + d.day / 100 });
-        } catch (e) { /* not a detail tab */ }
-      });
-    } catch (e) { /* a book we can't open — keep the other */ }
-  });
-  if (!cands.length) throw new Error('ไม่พบแท็บ OT รายคน (detail) ในช่วงล่าสุด');
-  cands.sort((a, b) => b.ord - a.ord);
-  const merged = {};
-  let ok = 0;
-  cands.slice(0, tabCap).forEach(c => {
-    try { parseDetailTab_(c.sh, merged); ok++; } catch (e) { /* keep the rest */ }
-  });
-  if (!ok) throw new Error('อ่านแท็บ detail ไม่สำเร็จ');
-  Object.keys(merged).forEach(mk => {
-    const rec = merged[mk], p = mk.split(' ');
-    rec.weekLabels = ['1-7', '8-14', '15-21', '22-31'].map(w => w + ' ' + p[0] + ' ' + p[1]);
-    rec.monthTotal = Object.keys(rec.teams).reduce(
-      (s, t) => s + rec.teams[t].reduce((a, b) => a + b, 0), 0);
-  });
-  merged._weeks = Object.keys(merged).filter(k => k[0] !== '_').map(mk => {
-    const rec = merged[mk];
-    const have = [0, 1, 2, 3].filter(i =>
-      Object.keys(rec.teams).some(t => rec.teams[t][i] > 0)).map(i => 'W' + (i + 1));
-    return mk + '=' + (have.join('/') || '—');
-  }).join('  ');
-  return merged;
-}
-
-// Background job — run this on an hourly time-driven trigger (Apps Script →
-// Triggers → Add Trigger → refreshOtCache → Time-driven → Hour timer). It reads
-// BOTH books over a wide window (it has the full 6-min budget, so no fetch
-// timeout) and stores the result so the dashboard can serve it instantly.
-function refreshOtCache() {
-  const data = computePSAData_([OT_YEARLY_FILE_ID, OT_WEEKLY_FILE_ID], 3, 30);
-  const json = JSON.stringify(data);
-  try { CacheService.getScriptCache().put(PSA_PRECOMP_KEY, json, 21600); } catch (e) {}
-  try { PropertiesService.getScriptProperties().setProperty(PSA_PRECOMP_KEY, json); } catch (e) {}
-  return data._weeks;   // shown when you Run it manually, so you can confirm coverage
-}
-
-// Served to the dashboard — cheap. Prefer the background-computed snapshot (both
-// books, complete). If it isn't there yet (trigger not set up), fall back to a
-// light single-book read so June W1/W2 still show; on a Spreadsheet timeout,
-// serve the last good snapshot instead of an error.
-function getPSAData_() {
-  try {
-    let s = null;
-    try { s = CacheService.getScriptCache().get(PSA_PRECOMP_KEY); } catch (e) {}
-    if (!s) { try { s = PropertiesService.getScriptProperties().getProperty(PSA_PRECOMP_KEY); } catch (e) {} }
-    if (s) { const d = JSON.parse(s); d._src = 'precomp'; return d; }
-    // No precompute yet — light single-book fallback (recent weeks may be missing
-    // until the refreshOtCache trigger is set up).
-    const d = computePSAData_([OT_YEARLY_FILE_ID], PSA_DETAIL_MONTHS_BACK_, PSA_DETAIL_TAB_CAP_);
-    d._note = 'ยังไม่ได้ตั้ง trigger refreshOtCache — สัปดาห์ล่าสุดจะยังไม่ครบ';
-    try { PropertiesService.getScriptProperties().setProperty('PSA_LAST_GOOD', JSON.stringify(d)); } catch (e) {}
-    return d;
-  } catch (e) {
-    try {
-      const s = PropertiesService.getScriptProperties().getProperty('PSA_LAST_GOOD');
-      if (s) { const d = JSON.parse(s); d._stale = String(e).slice(0, 90); return d; }
-    } catch (e2) {}
-    return { _error: String(e) };
-  }
-}
-
-// Map a PSA "Team/Week" row label (e.g. "EK/UO/FY/6B/BY", "CHINA",
-// "Porter Crewsign") to the dashboard team code. Airline groups → first token;
-// the named rows have explicit aliases. Returns null for unrecognised labels.
+// Map a "Team/Week" row label ("EK/UO/FY/6B/BY", "CHINA", "Porter Crewsign") to
+// the dashboard team code. Airline groups → first token; named rows have aliases.
 function teamCodeFromLabel_(label) {
   const s = String(label || '').trim();
   if (!s) return null;
@@ -480,58 +360,80 @@ function teamCodeFromLabel_(label) {
   return null;
 }
 
-// Aggregate one per-employee OT-detail tab into `merged` (month → teams/codes,
-// per-week minutes). Each session's hours are bucketed by its own date, so a
-// tab that straddles a week boundary still lands each day in the right bucket.
-function parseDetailTab_(sheet, merged) {
-  // Read only the data extent we need: employee rows (~400) + the 14 date-session
-  // [Code, Hrs] pairs (through col ~33). Capping rows/cols keeps the read light.
-  const lr = Math.min(sheet.getLastRow(), 700);
-  const lc = Math.min(sheet.getLastColumn(), 34);
-  if (lr < 5 || lc < 6) return;
-  const values = sheet.getRange(1, 1, lr, lc).getValues();
-  // Header row = the one naming รหัสพนักงาน (within the first few rows).
-  let hRow = -1, empCol = 0, seqCol = -1;
-  for (let r = 0; r < Math.min(values.length, 8); r++) {
+// Parse the tiled "สรุป" grid. For every header cell ("Team/Week" or "Code /
+// Week") whose next column is a week range, read the block beneath it (label in
+// the header's column, four week columns to the right) down to its "รวม" footer.
+// The row label decides the bucket: A1–A8 → codes, anything else → a team; the
+// team block and the code block feed the same month key.
+function parseSummarySheet_(values) {
+  const out = {};
+  const HDR = /(?:team|code)\s*\/\s*week/i;
+  for (let r = 0; r < values.length; r++) {
     const row = values[r];
-    for (let c = 0; c < row.length; c++) {
-      const s = String(row[c] || '');
-      if (s.indexOf('รหัสพนักงาน') >= 0) { hRow = r; empCol = c; }
-      if (s.indexOf('ลำดับ') >= 0 && seqCol < 0) seqCol = c;
+    if (!row) continue;
+    for (let c = 0; c < row.length - 4; c++) {
+      if (!HDR.test(String(row[c] || ''))) continue;
+      const wm = String(row[c + 1] || '').match(WEEK_RANGE_RE);
+      if (!wm) continue;
+      const mIdx = monthIndexFromName_(wm[3].replace(/\./g, ''));
+      if (mIdx < 0) continue;
+      const key = MONTH_NUM_TO_ABBR[mIdx] + ' ' + wm[4];
+      const wCols = [c + 1, c + 2, c + 3, c + 4];
+      const rec = out[key] || (out[key] = {
+        teams: {}, codes: {}, monthTotal: 0,
+        weekLabels: wCols.map(x => String(row[x]).replace(/\s+/g, ' ').trim()),
+      });
+      for (let rr = r + 1; rr < values.length; rr++) {
+        const label = String(values[rr][c] || '').trim();
+        if (!label) break;                                   // block ended
+        if (/^(รวม|total)$/i.test(label)) break;             // footer
+        if (/^A[1-8]$/i.test(label)) {
+          rec.codes[label.toUpperCase()] = wCols.map(x => hmsToMin_(values[rr][x]));
+        } else {
+          const tc = teamCodeFromLabel_(label);
+          if (tc) rec.teams[tc] = wCols.map(x => hmsToMin_(values[rr][x]));
+        }
+      }
     }
-    if (hRow >= 0) break;
   }
-  if (hRow < 0) return;
-  const teamCol = seqCol > 0 ? seqCol - 1 : 0;          // team sits left of ลำดับ
-  // Date/session columns: a header cell that parses as a date holds Code, and
-  // the next column holds Hrs.
-  const dcols = [];
-  values[hRow].forEach((cell, c) => {
-    const d = parseSessionDate_(cell);
-    if (d) dcols.push({ c: c, day: d.day, monthIdx: d.monthIdx, year: d.year });
+  // Drop empty (future / unfilled) month blocks; finalise totals.
+  Object.keys(out).forEach(key => {
+    const rec = out[key];
+    const tot = Object.keys(rec.teams).reduce(
+      (s, t) => s + rec.teams[t].reduce((a, b) => a + b, 0), 0);
+    if (tot <= 0) { delete out[key]; return; }
+    rec.monthTotal = tot;
   });
-  if (!dcols.length) return;
-  let lastTeam = null;
-  for (let r = hRow + 1; r < values.length; r++) {
-    const row = values[r];
-    const traw = String(row[teamCol] || '').trim();
-    if (traw) { const tc = teamCodeFromLabel_(traw); if (tc) lastTeam = tc; }
-    const empStr = String(row[empCol] == null ? '' : row[empCol]).replace(/\D/g, '');
-    if (empStr.length < 5) continue;                    // not an employee row
-    if (!lastTeam) continue;
-    const isKP = !LP_TEAM_CODES_[lastTeam];
-    for (let i = 0; i < dcols.length; i++) {
-      const dc = dcols[i];
-      const code = String(row[dc.c] || '').trim().toUpperCase();
-      if (!/^A[1-8]$/.test(code)) continue;
-      const mins = hmsToMin_(row[dc.c + 1]);
-      if (!mins) continue;
-      const mk = MONTH_NUM_TO_ABBR[dc.monthIdx] + ' ' + dc.year;
-      const wi = weekIndexFromDay_(dc.day);
-      const rec = merged[mk] || (merged[mk] = { teams: {}, codes: {} });
-      (rec.teams[lastTeam] || (rec.teams[lastTeam] = [0, 0, 0, 0]))[wi] += mins;
-      if (isKP) (rec.codes[code] || (rec.codes[code] = [0, 0, 0, 0]))[wi] += mins;
-    }
+  return out;
+}
+
+function getPSAData_() {
+  try {
+    const ss = SpreadsheetApp.openById(OT_YEARLY_FILE_ID);
+    let sh = ss.getSheetByName('สรุป');
+    if (!sh) sh = ss.getSheets().filter(s => s.getName().indexOf('สรุป') >= 0)[0];
+    if (!sh) throw new Error('ไม่พบชีต "สรุป" ใน OT Yearly');
+    const lr = Math.min(sh.getLastRow(), 300), lc = Math.min(sh.getLastColumn(), 300);
+    if (lr < 2 || lc < 5) throw new Error('ชีต "สรุป" ว่าง');
+    const merged = parseSummarySheet_(sh.getRange(1, 1, lr, lc).getValues());
+    if (!Object.keys(merged).length) throw new Error('อ่านชีต "สรุป" ไม่พบข้อมูล');
+    // Diagnostic: flag any month that is missing a week (all-complete → "ครบ").
+    const gaps = [];
+    Object.keys(merged).forEach(mk => {
+      const rec = merged[mk];
+      const have = [0, 1, 2, 3].filter(i =>
+        Object.keys(rec.teams).some(t => rec.teams[t][i] > 0));
+      if (have.length < 4) gaps.push(mk + '=W' + have.map(i => i + 1).join('/W'));
+    });
+    merged._weeks = gaps.length ? ('ไม่ครบ: ' + gaps.join('  ')) : 'ครบทุกสัปดาห์';
+    try { PropertiesService.getScriptProperties().setProperty('PSA_LAST_GOOD', JSON.stringify(merged)); } catch (e) {}
+    return merged;
+  } catch (e) {
+    try {
+      const s = PropertiesService.getScriptProperties().getProperty('PSA_LAST_GOOD');
+      if (s) { const d = JSON.parse(s); d._stale = String(e).slice(0, 90); return d; }
+    } catch (e2) {}
+    return { _error: String(e) };
   }
 }
 
