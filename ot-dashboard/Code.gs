@@ -410,22 +410,30 @@ function parseSummarySheet_(values) {
 function getPSAData_() {
   try {
     const ss = SpreadsheetApp.openById(OT_YEARLY_FILE_ID);
-    let sh = ss.getSheetByName('สรุป');
-    if (!sh) sh = ss.getSheets().filter(s => s.getName().indexOf('สรุป') >= 0)[0];
-    if (!sh) throw new Error('ไม่พบชีต "สรุป" ใน OT Yearly');
-    const lr = Math.min(sh.getLastRow(), 300), lc = Math.min(sh.getLastColumn(), 300);
-    if (lr < 2 || lc < 5) throw new Error('ชีต "สรุป" ว่าง');
-    const merged = parseSummarySheet_(sh.getRange(1, 1, lr, lc).getValues());
-    if (!Object.keys(merged).length) throw new Error('อ่านชีต "สรุป" ไม่พบข้อมูล');
-    // Diagnostic: flag any month that is missing a week (all-complete → "ครบ").
-    const gaps = [];
-    Object.keys(merged).forEach(mk => {
-      const rec = merged[mk];
-      const have = [0, 1, 2, 3].filter(i =>
-        Object.keys(rec.teams).some(t => rec.teams[t][i] > 0));
-      if (have.length < 4) gaps.push(mk + '=W' + have.map(i => i + 1).join('/W'));
+    // Scan the SMALL sheets only (summary tables are tiny; the per-employee
+    // detail tabs are hundreds of rows — skipping them keeps this fast and
+    // avoids a Spreadsheet timeout). Parse any Team/Week grid found and, per
+    // month, keep the block with the LARGEST total — so a stray small/old copy
+    // of a month can't shadow the complete "สรุป" grid, wherever it lives.
+    const merged = {};
+    ss.getSheets().forEach(sh => {
+      try {
+        const lr = sh.getLastRow();
+        if (lr < 2 || lr > 200) return;            // summary grids are ~70 rows; detail tabs are ~400
+        const lc = Math.min(sh.getLastColumn(), 300);
+        if (lc < 5) return;
+        const vals = sh.getRange(1, 1, lr, lc).getValues();
+        if (!vals.some(row => row.some(c => /(?:team|code)\s*\/\s*week/i.test(String(c || ''))))) return;
+        const part = parseSummarySheet_(vals);
+        Object.keys(part).forEach(mk => {
+          if (!merged[mk] || (part[mk].monthTotal || 0) > (merged[mk].monthTotal || 0)) merged[mk] = part[mk];
+        });
+      } catch (e) { /* skip a bad sheet, keep the rest */ }
     });
-    merged._weeks = gaps.length ? ('ไม่ครบ: ' + gaps.join('  ')) : 'ครบทุกสัปดาห์';
+    if (!Object.keys(merged).length) throw new Error('ไม่พบตารางสรุป Team/Week ใน OT Yearly');
+    // Diagnostic: month totals (hours) so a wrong/partial read is visible.
+    merged._weeks = Object.keys(merged).sort().map(mk =>
+      mk.replace(/ 20\d\d$/, '') + ':' + Math.round((merged[mk].monthTotal || 0) / 60) + 'h').join(' ');
     try { PropertiesService.getScriptProperties().setProperty('PSA_LAST_GOOD', JSON.stringify(merged)); } catch (e) {}
     return merged;
   } catch (e) {
