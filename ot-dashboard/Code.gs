@@ -377,51 +377,83 @@ function detailTabDate_(probe) {
   return (hasEmp && date) ? date : null;
 }
 
+const PSA_PRECOMP_KEY = 'PSA_PRECOMP_V1';   // background-computed snapshot
+
+// Heavy computation — aggregate the per-employee OT detail tabs across the given
+// books. `bookIds` is a list of file IDs (scan + dedupe by first session date so
+// a week that lives in only one book is picked up wherever it is). This is what
+// the background trigger runs; it may take a while, which is fine off the request
+// path. Returns the month→teams/codes shape + a _weeks diagnostic.
+function computePSAData_(bookIds, monthsBack, tabCap) {
+  const now = new Date();
+  const cutoff = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+  const cands = [], seen = {};
+  bookIds.forEach(fid => {
+    try {
+      SpreadsheetApp.openById(fid).getSheets().forEach(sh => {
+        try {
+          const d = detailTabDate_(sh.getRange(1, 1, 4, 12).getValues());
+          if (!d) return;
+          if (new Date(d.year, d.monthIdx, 1) < cutoff) return;
+          const key = d.year + '-' + d.monthIdx + '-' + d.day;
+          if (seen[key]) return;                 // same week already taken from the other book
+          seen[key] = true;
+          cands.push({ sh: sh, ord: d.year * 12 + d.monthIdx + d.day / 100 });
+        } catch (e) { /* not a detail tab */ }
+      });
+    } catch (e) { /* a book we can't open — keep the other */ }
+  });
+  if (!cands.length) throw new Error('ไม่พบแท็บ OT รายคน (detail) ในช่วงล่าสุด');
+  cands.sort((a, b) => b.ord - a.ord);
+  const merged = {};
+  let ok = 0;
+  cands.slice(0, tabCap).forEach(c => {
+    try { parseDetailTab_(c.sh, merged); ok++; } catch (e) { /* keep the rest */ }
+  });
+  if (!ok) throw new Error('อ่านแท็บ detail ไม่สำเร็จ');
+  Object.keys(merged).forEach(mk => {
+    const rec = merged[mk], p = mk.split(' ');
+    rec.weekLabels = ['1-7', '8-14', '15-21', '22-31'].map(w => w + ' ' + p[0] + ' ' + p[1]);
+    rec.monthTotal = Object.keys(rec.teams).reduce(
+      (s, t) => s + rec.teams[t].reduce((a, b) => a + b, 0), 0);
+  });
+  merged._weeks = Object.keys(merged).filter(k => k[0] !== '_').map(mk => {
+    const rec = merged[mk];
+    const have = [0, 1, 2, 3].filter(i =>
+      Object.keys(rec.teams).some(t => rec.teams[t][i] > 0)).map(i => 'W' + (i + 1));
+    return mk + '=' + (have.join('/') || '—');
+  }).join('  ');
+  return merged;
+}
+
+// Background job — run this on an hourly time-driven trigger (Apps Script →
+// Triggers → Add Trigger → refreshOtCache → Time-driven → Hour timer). It reads
+// BOTH books over a wide window (it has the full 6-min budget, so no fetch
+// timeout) and stores the result so the dashboard can serve it instantly.
+function refreshOtCache() {
+  const data = computePSAData_([OT_YEARLY_FILE_ID, OT_WEEKLY_FILE_ID], 3, 30);
+  const json = JSON.stringify(data);
+  try { CacheService.getScriptCache().put(PSA_PRECOMP_KEY, json, 21600); } catch (e) {}
+  try { PropertiesService.getScriptProperties().setProperty(PSA_PRECOMP_KEY, json); } catch (e) {}
+  return data._weeks;   // shown when you Run it manually, so you can confirm coverage
+}
+
+// Served to the dashboard — cheap. Prefer the background-computed snapshot (both
+// books, complete). If it isn't there yet (trigger not set up), fall back to a
+// light single-book read so June W1/W2 still show; on a Spreadsheet timeout,
+// serve the last good snapshot instead of an error.
 function getPSAData_() {
   try {
-    const now = new Date();
-    const cutoff = new Date(now.getFullYear(), now.getMonth() - PSA_DETAIL_MONTHS_BACK_, 1);
-    // Pass 1 — ultra-cheap probe (a fixed 4×12 top-left read, no getLastRow /
-    // getLastColumn) to spot recent detail tabs without touching every cell of a
-    // formula-heavy book. Read ONE book only (OT Yearly) — reading a second heavy
-    // book in the same request tips the Spreadsheet service over its time limit.
-    const cands = [];
-    SpreadsheetApp.openById(OT_YEARLY_FILE_ID).getSheets().forEach(sh => {
-      try {
-        const d = detailTabDate_(sh.getRange(1, 1, 4, 12).getValues());
-        if (!d) return;
-        if (new Date(d.year, d.monthIdx, 1) < cutoff) return;
-        cands.push({ sh: sh, ord: d.year * 12 + d.monthIdx + d.day / 100 });
-      } catch (e) { /* sheet too small / unreadable — not a detail tab */ }
-    });
-    if (!cands.length) throw new Error('ไม่พบแท็บ OT รายคน (detail) ในช่วงล่าสุด');
-    // Pass 2 — read ONLY the most-recent tabs (cap bounds the heavy reads so the
-    // large books can't time the fetch out).
-    cands.sort((a, b) => b.ord - a.ord);
-    const merged = {};
-    let ok = 0;
-    cands.slice(0, PSA_DETAIL_TAB_CAP_).forEach(c => {
-      try { parseDetailTab_(c.sh, merged); ok++; } catch (e) { /* keep the rest */ }
-    });
-    if (!ok) return { _error: 'PSA: อ่านแท็บ detail ไม่สำเร็จ' };
-    Object.keys(merged).forEach(mk => {
-      const rec = merged[mk], p = mk.split(' ');
-      rec.weekLabels = ['1-7', '8-14', '15-21', '22-31'].map(w => w + ' ' + p[0] + ' ' + p[1]);
-      rec.monthTotal = Object.keys(rec.teams).reduce(
-        (s, t) => s + rec.teams[t].reduce((a, b) => a + b, 0), 0);
-    });
-    // Diagnostic: which weeks actually got data per month (so a gap like a
-    // missing week-tab is visible in the dashboard status line).
-    merged._weeks = Object.keys(merged).filter(k => k[0] !== '_').map(mk => {
-      const rec = merged[mk];
-      const have = [0, 1, 2, 3].filter(i =>
-        Object.keys(rec.teams).some(t => rec.teams[t][i] > 0)).map(i => 'W' + (i + 1));
-      return mk + '=' + (have.join('/') || '—');
-    }).join('  ');
-    // Remember the last good snapshot so a (frequently transient) Spreadsheet
-    // timeout on a later fetch can be served from it instead of an error.
-    try { PropertiesService.getScriptProperties().setProperty('PSA_LAST_GOOD', JSON.stringify(merged)); } catch (e) {}
-    return merged;
+    let s = null;
+    try { s = CacheService.getScriptCache().get(PSA_PRECOMP_KEY); } catch (e) {}
+    if (!s) { try { s = PropertiesService.getScriptProperties().getProperty(PSA_PRECOMP_KEY); } catch (e) {} }
+    if (s) { const d = JSON.parse(s); d._src = 'precomp'; return d; }
+    // No precompute yet — light single-book fallback (recent weeks may be missing
+    // until the refreshOtCache trigger is set up).
+    const d = computePSAData_([OT_YEARLY_FILE_ID], PSA_DETAIL_MONTHS_BACK_, PSA_DETAIL_TAB_CAP_);
+    d._note = 'ยังไม่ได้ตั้ง trigger refreshOtCache — สัปดาห์ล่าสุดจะยังไม่ครบ';
+    try { PropertiesService.getScriptProperties().setProperty('PSA_LAST_GOOD', JSON.stringify(d)); } catch (e) {}
+    return d;
   } catch (e) {
     try {
       const s = PropertiesService.getScriptProperties().getProperty('PSA_LAST_GOOD');
