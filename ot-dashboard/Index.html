@@ -1852,11 +1852,14 @@ function applyServerData(srv){
     }
     window.LAST_FLIGHTS_RAW = srv.Flights;
     if(srv.Flights && !srv.Flights._error){
-      let updatedMonths=0,totalActive=0,totalCancelled=0;
+      let updatedMonths=0,totalActive=0,totalCancelled=0;const fMon=[];
       Object.keys(srv.Flights).forEach(mk=>{
         if(mk.startsWith('_'))return;
         const f=srv.Flights[mk];
         if(!f||!f.flightCounts)return;
+        // Diagnostic: what the flight feed actually returned per month (so a
+        // missing/empty month tab — e.g. June — is visible on the dashboard).
+        fMon.push(mk.replace(/ 20\d\d$/,'')+':'+f.flightCounts.reduce((a,b)=>a+b,0));
         if(!PSA_DATA[mk])return;
         PSA_DATA[mk].flightCounts = f.flightCounts.slice();
         Object.keys(PSA_DATA[mk].teams).forEach(t=>{PSA_DATA[mk].teams[t].flights=[0,0,0,0];});
@@ -1865,6 +1868,7 @@ function applyServerData(srv){
         totalActive += f.flightCounts.reduce((a,b)=>a+b,0);
         totalCancelled += (f.cancelled||0);
       });
+      if(fMon.length)summary.push('ไฟลท์/เดือน: '+fMon.join('  '));
       if(updatedMonths>0)summary.push('Flights '+totalActive+' เที่ยว ('+updatedMonths+' เดือน, ตัด '+totalCancelled+' Cancelled)');
     }
     // Surface any per-source errors so a partial fetch (e.g. only Flights) is
