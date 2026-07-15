@@ -445,6 +445,15 @@ function getPSAData_() {
   }
 }
 
+// Kept only so a leftover hourly time-trigger some setups created earlier does
+// not fail with "function not found" (which emails a failure summary). It just
+// warms the last-good PSA snapshot. Safe to delete this trigger in
+// Apps Script → Triggers — it is no longer needed.
+function refreshOtCache() {
+  try { getPSAData_(); } catch (e) {}
+  return 'ok';
+}
+
 // ============= Flight Feed Parser (ไม่เปลี่ยน) =============
 function getFlightData_() {
   const result = {};
