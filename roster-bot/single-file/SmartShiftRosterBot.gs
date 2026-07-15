@@ -1,0 +1,3620 @@
+/**
+ * SmartShift Roster Bot — ALL-IN-ONE (single file)
+ * =============================================================================
+ * Single-file build of the roster-bot project: paste this whole file into ONE
+ * Apps Script file (e.g. Code.gs), set appsscript.json (Drive v2 advanced
+ * service + Asia/Bangkok), and the Script Properties GCHAT_WEBHOOK_REPORT /
+ * GCHAT_WEBHOOK_ALERT.
+ *
+ *   ⚠️ Use EITHER this single file OR the split .gs files in roster-bot/ —
+ *      never both in the same Apps Script project (functions would collide).
+ *
+ *   ▶ RUN AN ENTRY POINT, never an internal helper:
+ *       Bot A (web/dashboard): runDailyRosterReport() / setupTriggers() / doGet()
+ *       Bot B (detailed/HR):   runLegacyToday() / runLegacyReport(y,m,d) / setupLegacyTriggers()
+ *       Manual smoke test:     testRosterFromId('<psaId>','<llId>',2026,6,21)
+ *       Migrate from old bot:  removeAllTriggers()  (clears stale runMorning/...)
+ *
+ * Sections below (in dependency order):
+ *   1) RosterReader   2) LLReader   3) MasterReader   4) SLA   5) Validation
+ *   6) RosterBot      7) WebDashboard   8) Reconcile   9) LegacyReport
+ * =============================================================================
+ */
+
+
+
+// ════════════════════════════════════════════════════════════════════════
+// ===== RosterReader.gs =====
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * RosterReader.gs — unified roster reader for Google Apps Script
+ * =============================================================================
+ * Replaces the brittle, sheet-NAME based routing of the previous assignment
+ * script. Parsing is now HEADER-DRIVEN, which is the real fix: team layouts
+ * drift between days (e.g. TR is the standard ID/Position/NAME layout on
+ * 01–03 JUN but switches to the NO/ID/NAME/TIME/SHIFT/OT variant on 04 JUN;
+ * AK/CHN/KE used to have bespoke layouts and are now standard). Routing by name
+ * silently mis-read those teams.
+ *
+ * What it reads correctly for EVERY team:
+ *   • headcount  : working / OT-off / off / sick / leave(personal+vacation)
+ *   • OT         : number of people on OT + total OT hours
+ *   • flights    : per-team flight count, and per-employee flight assignments
+ *                  with shift code and flight OP/CL & STA/STD times
+ *
+ * GROUND-TRUTH RULE (most important): attendance comes from the REMARK column,
+ * never from the shift code. A row can show shift "X9" (00:00-09:00) yet REMARK
+ * says "OFF" / "OFF (NO RQ OT)" / "OT OFF" — that person is not working.
+ *
+ * Entry points:
+ *   readRosterFromSpreadsheet(ss) -> { teams:{...}, totals:{...} }
+ *   debugDumpRoster(ssId)         -> logs the per-team summary
+ * The Drive-navigation / monthly-file / Chat plumbing from the original script
+ * can call readRosterFromSpreadsheet() in place of detectAndParse().
+ *
+ * SHARED READER: this module is the single source of truth for parsing the PSA
+ * assignment spreadsheet. Both report pipelines (the web dashboard bot in
+ * RosterBot.gs/WebDashboard.gs and the legacy detailed report in
+ * LegacyReport.gs/Reconcile.gs) consume readRosterFromSpreadsheet().
+ */
+
+var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE'];
+
+// ─── cell helpers ───────────────────────────────────────────────────────────
+function rrClean_(v) {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) {
+    var h = v.getHours(), m = v.getMinutes();
+    return (h || m) ? (('0' + h).slice(-2) + ':' + ('0' + m).slice(-2)) : '';
+  }
+  var s = String(v).trim();
+  return s.replace(/\.0+$/, '');
+}
+function rrUp_(v) { return rrClean_(v).toUpperCase(); }
+
+// ─── attendance classification (REMARK first, shift only as fallback) ───────
+function rrClassify_(shift, remark) {
+  var rm = rrUp_(remark).trim();
+  var sh = rrUp_(shift).trim();
+  var core = rm.replace(/\(.*?\)/g, '').trim();            // strip "(NO RQ OT)" notes
+
+  if (core.indexOf('SICK') === 0 || core === 'SL' || core === 'MC'
+      || sh === 'SICK' || sh === 'SL' || sh === 'MC') return 'sick';
+  if (core.indexOf('VAC') === 0 || core === 'BL' || core === 'AL' || core === 'VACATION') return 'vac';
+  if (core.indexOf('OT OFF') === 0 || core.indexOf('OT-OFF') === 0) return 'ot_off';
+  if (core.indexOf('ONDUTY') === 0 || core.indexOf('ON DUTY') === 0) return 'working';
+  if (core.indexOf('OFF') === 0 || core === 'X') return 'off';
+  if (core === '') {                                       // no REMARK -> use shift
+    if (sh.indexOf('VAC') >= 0 || sh === 'BL') return 'vac';
+    if (sh === 'SL' || sh === 'SICK' || sh === 'MC') return 'sick';
+    if (sh === '' || sh === 'X' || sh === 'XX' || sh === 'OFF' || sh === '-'
+        || sh.indexOf('OFF') === 0) return 'off';
+    return 'working';
+  }
+  return 'working';
+}
+
+// ─── time / OT helpers ──────────────────────────────────────────────────────
+function rrTimePair_(s) {
+  var m = rrClean_(s).match(/(\d{1,2})[:.]?(\d{2})/);
+  return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : '';
+}
+function rrRangeHours_(s) {
+  var str = rrClean_(s).replace(/\./g, ':');
+  var m = str.match(/^(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?/);
+  if (!m) return 0;
+  var a = parseInt(m[1], 10) * 60 + (m[2] ? parseInt(m[2], 10) : 0);
+  var b = parseInt(m[3], 10) * 60 + (m[4] ? parseInt(m[4], 10) : 0);
+  if (b <= a) b += 1440;
+  return Math.round((b - a) / 60 * 10) / 10;
+}
+function rrOtHours_(v) {
+  var s = rrUp_(v);
+  if (!s || s === '-' || s === 'NO OT' || s === 'VAC' || s === 'X') return 0;
+  var m = s.match(/^(\d{1,2}):(\d{2})(:\d{2})?$/);          // duration H:MM[:SS]
+  if (m) {
+    var h = parseInt(m[1], 10), mi = parseInt(m[2], 10);
+    return h <= 14 ? Math.round((h + mi / 60) * 10) / 10 : 0;  // >14 = clock time
+  }
+  if (/^\d+(\.\d+)?$/.test(s)) { var f = parseFloat(s); return (f > 0 && f <= 14) ? f : 0; }
+  return rrRangeHours_(s);
+}
+
+// ── OT pre/post (ก่อนกะ / หลังกะ) classification ────────────────────────────
+function rrMin_(v) {
+  var s = rrClean_(v); if (!s) return null;
+  var m = s.match(/^(\d{1,2})[:.](\d{2})/); if (m) return +m[1] * 60 + +m[2];
+  m = s.match(/^(\d{2})(\d{2})$/); if (m) return +m[1] * 60 + +m[2];
+  return null;
+}
+/** [start,end] minutes from a 'HH-HH' range string, else [null,null]. */
+function rrRangeStr_(s) {
+  s = rrClean_(s);
+  var m = s.match(/(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?/);
+  if (m) return [(+m[1]) * 60 + (m[2] ? +m[2] : 0), (+m[3]) * 60 + (m[4] ? +m[4] : 0)];
+  return [null, null];
+}
+/** [start,end] minutes from a clock-in cell (+ next col), or a range cell. */
+function rrRangeCells_(row, col) {
+  if (col < 0 || col >= row.length) return [null, null];
+  var r = rrRangeStr_(row[col]);
+  if (r[0] != null) return r;
+  return [rrMin_(row[col]), col + 1 < row.length ? rrMin_(row[col + 1]) : null];
+}
+function rrFmtMin_(m) {
+  if (m == null) return '';
+  var h = Math.floor(m / 60) % 24, mm = ((m % 60) + 60) % 60;
+  return ('0' + h).slice(-2) + ':' + ('0' + mm).slice(-2);
+}
+function rrFmtRange_(r) { return (r[0] != null && r[1] != null) ? (rrFmtMin_(r[0]) + '-' + rrFmtMin_(r[1])) : ''; }
+
+/** 'PRE' (OT before shift) or 'POST' (OT after shift). Defaults POST. */
+function rrOtType_(srng, orng, isOff) {
+  if (isOff) return 'POST';
+  var si = srng[0], so = srng[1], oi = orng[0], oo = orng[1];
+  if (oi == null) return 'POST';
+  if (so != null && si != null && so <= si) so += 1440;
+  if (oo != null && oo <= oi) oo += 1440;
+  var TOL = 30;
+  if (si != null && oo != null && oo <= si + TOL) return 'PRE';
+  if (so != null && oi >= so - TOL) return 'POST';
+  if (si != null && oi < si) return 'PRE';
+  return 'POST';
+}
+
+// ─── header detection (standard + TR NO/ID/NAME/TIME/SHIFT/OT variant) ──────
+function rrFindHeader_(rows) {
+  for (var r = 0; r < Math.min(8, rows.length); r++) {
+    var u = rows[r].map(rrUp_);
+    if (u.indexOf('NAME') < 0) continue;
+    var idIdx = u.indexOf('ID');
+    if (idIdx < 0) idIdx = u.indexOf('NO');
+    if (idIdx < 0) idIdx = u.indexOf('NO.');
+    if (idIdx < 0) continue;
+
+    var cm = { hdr: r, name: u.indexOf('NAME'), id: idIdx };
+    cm.shift  = u.indexOf('SHIFT');
+    cm.time   = u.indexOf('TIME');
+    cm.pos    = u.indexOf('POSITION') >= 0 ? u.indexOf('POSITION') : u.indexOf('POS.');
+    cm.remark = u.indexOf('REMARK');
+    if (cm.remark < 0) cm.remark = u.indexOf('STATUS');     // PVTLP: attendance lives in a STATUS column
+    if (cm.remark < 0) for (var rc = 0; rc < u.length; rc++) { if (u[rc].indexOf('REMARK') >= 0) { cm.remark = rc; break; } }
+    cm.re     = u.indexOf('RE');
+    cm.resked = u.indexOf('RE-SKED');
+    if (cm.resked < 0) cm.resked = u.indexOf('RESKED');
+    if (cm.resked < 0) cm.resked = u.indexOf('RE-SKED.');
+    cm.ot     = u.indexOf('OT');
+    if (cm.ot < 0) for (var oc = 0; oc < u.length; oc++) { if (u[oc].indexOf('OT') === 0) { cm.ot = oc; break; } } // 'OT หน้า' (PORTER CREW SIGN)
+    cm.ottot  = -1;
+    for (var c = 0; c < u.length; c++) {
+      var h = u[c].replace(/\./g, '').replace(/\s+/g, ' ').trim();
+      if (h.indexOf('TOTAL') === 0 && cm.ot >= 0 && (c - cm.ot) > 0 && (c - cm.ot) <= 3) cm.ottot = c;
+    }
+    cm.flt = u.indexOf('FLIGHT') >= 0 ? u.indexOf('FLIGHT') + 1 : -1;
+    if (cm.flt < 0) for (var fc = 0; fc < u.length; fc++) { if (u[fc].indexOf('FLIGHT') >= 0) { cm.flt = fc + 1; break; } } // ':: FLIGHT ::' (KE)
+    return cm;
+  }
+  return null;
+}
+
+// ─── parsers ────────────────────────────────────────────────────────────────
+function rrParseStandard_(rows, team) {
+  var cm = rrFindHeader_(rows);
+  if (!cm) return null;
+  var hi = cm.hdr;
+
+  var flights = {}, fltcols = [];
+  if (cm.flt >= 0) {
+    var hdr = rows[hi];
+    for (var c = cm.flt; c < hdr.length; c++) {
+      var nm = rrClean_(hdr[c]);
+      var nu = nm.toUpperCase();
+      if (nm && nm.charAt(0) !== '=' && nu !== 'STA / STD' && nu !== 'OP / CL'
+          && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER') {
+        fltcols.push({ col: c, name: nm });
+      }
+    }
+    var sta = rows[hi + 1] || [], opn = rows[hi + 2] || [];
+    for (var fi = 0; fi < fltcols.length; fi++) {
+      var c0 = fltcols[fi].col;
+      var c1 = (fi + 1 < fltcols.length) ? fltcols[fi + 1].col : hdr.length;
+      fltcols[fi].end = c1;                                  // flight occupies cols c0..c1-1
+      var st = [], oc = [];
+      for (var cc = c0; cc < c1; cc++) {
+        var tv = rrTimePair_(sta[cc]); if (tv) st.push(tv);
+        var ov = rrTimePair_(opn[cc]); if (ov) oc.push(ov);
+      }
+      flights[fltcols[fi].name] = { STA: st[0] || '', STD: st[1] || '', OP: oc[0] || '', CL: oc[1] || '' };
+    }
+  }
+
+  var recs = [], seen = {};
+  for (var rr = hi + 1; rr < rows.length; rr++) {
+    var row = rows[rr];
+    var idd = (cm.id < row.length ? rrClean_(row[cm.id]) : '').replace(/\D/g, '');
+    if (idd.length < 6 && cm.id + 1 < row.length) {          // WY leading seq column
+      var rawNext = rrClean_(row[cm.id + 1]).replace(/\.0+$/, '');
+      if (/^\d{6,8}$/.test(rawNext)) idd = rawNext;           // only a PURE numeric id (not a flight code like PG251/252)
+    }
+    var name = cm.name < row.length ? rrClean_(row[cm.name]) : '';
+    if (!name || idd.length < 6 || idd.length > 8) continue;
+    var nU = name.toUpperCase();
+    if (nU === 'NAME' || nU === 'REMARK' || nU === 'SUPPORT' || nU === 'JAIDEE' || seen[idd]) continue;
+    if (rrUp_(row[cm.id]).indexOf('EX') === 0) continue;     // template "Ex. 212121" sample row
+    seen[idd] = true;
+
+    var shift  = (cm.shift  >= 0 && cm.shift  < row.length) ? rrClean_(row[cm.shift])  : '';
+    var timev  = (cm.time   >= 0 && cm.time   < row.length) ? rrClean_(row[cm.time])   : '';
+    var remark = (cm.remark >= 0 && cm.remark < row.length) ? rrClean_(row[cm.remark]) : '';
+    var otv    = (cm.ottot  >= 0 && cm.ottot  < row.length) ? rrClean_(row[cm.ottot])  : '';
+
+    var assigns = [];
+    fltcols.forEach(function (fc) {
+      var tasks = [];
+      for (var cc = fc.col; cc < (fc.end || fc.col + 1); cc++) {
+        var v = cc < row.length ? rrClean_(row[cc]) : '';
+        if (v) tasks.push(v);
+      }
+      if (tasks.length) {
+        var info = flights[fc.name] || {};
+        assigns.push({ flight: fc.name, task: tasks.join('/'),
+                       STA: info.STA || '', STD: info.STD || '', OP: info.OP || '', CL: info.CL || '' });
+      }
+    });
+
+    var oth = rrOtHours_(otv);
+    var bkt = rrClassify_(shift || timev, remark);
+    var srng = cm.time >= 0 ? rrRangeCells_(row, cm.time) : [null, null];
+    // Re-Sked overrides the shift time when filled (เปลี่ยนเวลาเข้างาน)
+    var reTime = '';
+    if (cm.resked >= 0) {
+      var rs = rrRangeCells_(row, cm.resked);
+      if (rs[0] != null) { srng = rs; reTime = rrFmtRange_(rs); }
+    }
+    var orng = cm.ot >= 0 ? rrRangeCells_(row, cm.ot) : [null, null];
+    var otType = oth > 0 ? rrOtType_(srng, orng, bkt === 'ot_off') : null;
+    recs.push({
+      team: team, id: idd, name: name,
+      pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
+      re: reTime || ((cm.re >= 0 && cm.re < row.length) ? rrClean_(row[cm.re]) : ''),
+      shift: shift || timev,
+      shiftTime: rrFmtRange_(srng) || (shift || timev),
+      shiftStart: srng[0],
+      shiftHrs: (srng[0] != null && srng[1] != null) ? Math.round((((srng[1] <= srng[0] ? srng[1] + 1440 : srng[1]) - srng[0]) / 60) * 10) / 10 : 0,
+      bucket: bkt, ot: oth, otType: otType, otTime: oth > 0 ? rrFmtRange_(orng) : '',
+      assignments: assigns,
+    });
+  }
+  return recs;
+}
+
+function rrParsePorter_(rows, team) {
+  var recs = [];
+  for (var r = 2; r < rows.length; r++) {
+    var row = rows[r];
+    [0, 6].forEach(function (base) {
+      if (base + 4 >= row.length) return;
+      var nm = rrClean_(row[base]), sched = rrClean_(row[base + 3]), ot = rrClean_(row[base + 4]);
+      var nU = nm.toUpperCase();
+      if (!nm || nm.length < 2 || /^\d/.test(nm) || nU === 'NAME' || nU === '(INTER)'
+          || nU === '(DOM)' || nU.indexOf('STBY') >= 0) return;
+      recs.push({ team: team, id: '', name: nm, pos: 'PORTER', shift: sched,
+                  bucket: rrClassify_(sched, ''), ot: rrOtHours_(ot), assignments: [] });
+    });
+  }
+  return recs;
+}
+
+function rrParseAdminDoc_(rows, team) {
+  var recs = [];
+  for (var r = 2; r < rows.length; r++) {
+    var row = rows[r];
+    var nm = rrClean_(row[0]), sched = row.length > 1 ? rrClean_(row[1]) : '';
+    var nU = nm.toUpperCase();
+    if (!nm || nm.length < 2 || nU === 'NAME' || nU === 'SCHEDULE') continue;
+    var flts = [];
+    for (var c = 2; c < row.length; c++) { var v = rrClean_(row[c]); if (v) flts.push({ flight: v, task: '' }); }
+    recs.push({ team: team, id: '', name: nm, pos: 'ADMINDOC', shift: sched,
+                bucket: (!sched || sched.toUpperCase() === 'OFF') ? 'off' : 'working',
+                ot: 0, assignments: flts });
+  }
+  return recs;
+}
+
+function rrParseCrewsign_(rows, team) {
+  var recs = [], hi = -1;
+  for (var r = 0; r < Math.min(20, rows.length); r++) {
+    var u = rows[r].map(rrUp_);
+    if (u.indexOf('STAFF NAME') >= 0 || (u.indexOf('SHIFT') >= 0 && u.indexOf('REMARK') >= 0)) { hi = r; break; }
+  }
+  if (hi < 0) return recs;
+  var seen = {};
+  for (var rr = hi + 1; rr < rows.length; rr++) {
+    var row = rows[rr];
+    var shift = rrClean_(row[0]), name = row.length > 1 ? rrClean_(row[1]) : '';
+    var flt = row.length > 3 ? rrClean_(row[3]) : '';
+    var nU = name.toUpperCase();
+    if (!name || name.length < 2 || nU === 'STAFF NAME' || nU === 'NAME') continue;
+    var key = nU.replace(/[\s\.]+/g, '');
+    if (seen[key]) continue;                                  // dedup roster vs assignment blocks
+    seen[key] = true;
+    var actual = shift.indexOf('/') >= 0 ? shift.split('/').pop().trim() : shift;
+    // block has SHIFT (assignment) → classify by shift; roster block (no shift) → REMARK col
+    var bkt = shift ? rrClassify_(actual, '') : rrClassify_('', flt);
+    recs.push({ team: team, id: '', name: name, pos: 'CREWSIGN', shift: shift,
+                bucket: bkt, ot: 0,
+                assignments: (flt && rrUp_(flt) !== 'OFF') ? [{ flight: flt, task: '' }] : [] });
+  }
+  return recs;
+}
+
+/**
+ * SU has a bespoke 3-section template (rolls out for SU specifically):
+ *   1) CHECK-IN COUNTER rotation  — staff sit a long stretch ("check-in
+ *      common") rotating across time slots, covering MANY flights.
+ *   2) ARRIVAL & DEPARTURE GATE   — per-flight gate roles.
+ *   3) JOB DETAIL                 — per-flight job roles (SOD/OB/RF/...).
+ * A staff member therefore gets ONE long CHECK-IN block plus per-flight
+ * gate/job assignments — matching how SU actually schedules.
+ */
+function rrIsSuName_(raw) {
+  var n = String(raw || '').trim();
+  // strip a trailing borrowed-team / status suffix (e.g. "TANADON PVT", "ANUTTRI JQ")
+  n = n.replace(/\s+(WK|TRN|EK|WY|QR|JQ|KC|ZF|FC|BOGO|PVT|ZF)\b.*$/i, '').trim();
+  if (!n || n.length < 2 || n === '-') return null;
+  var u = n.toUpperCase();
+  if (/\d/.test(u)) return null;                              // flight codes (SU637)
+  if (u.indexOf('PORTER') >= 0) return null;
+  var stop = ['SPVR', 'SOD', 'OB', 'ONBOARD', 'RF', 'CS', 'ARR', 'PSC', 'STBY',
+              'SCAN', 'FILE', 'MONITOR', 'BRIEF', 'NIL', 'REMARK', 'GATE', 'AGENT', 'PREPARED'];
+  for (var i = 0; i < stop.length; i++) if (u === stop[i]) return null;
+  return n;
+}
+
+function rrParseSU_(rows, team) {
+  var staff = {};
+  function get(raw) {
+    var n = rrIsSuName_(raw);
+    if (!n) return null;
+    if (!staff[n]) staff[n] = { counter: [], flights: [] };
+    return n;
+  }
+  function split(v) { return rrClean_(v).split(/[,\/]/); }
+
+  var ci = -1, ga = -1, jb = -1;
+  for (var r = 0; r < Math.min(40, rows.length); r++) {
+    var row = rows[r];
+    var c1 = rrUp_(row[1]), c2 = rrUp_(row[2]), c3 = rrUp_(row[3]), c5 = rrUp_(row[5]);
+    if (ci < 0 && c1 === 'FLT' && (c2 === 'TIME' || c2 === 'SCHEDULE')) ci = r;
+    else if (ga < 0 && c1 === 'FLT' && c3.indexOf('GATE') >= 0) ga = r;
+    else if (jb < 0 && c1 === 'FLT' && c5.indexOf('SOD') >= 0) jb = r;
+  }
+  var info = {};
+
+  // 1) counter rotation
+  if (ci >= 0) {
+    var curflt = '';
+    for (var r1 = ci + 1; r1 < rows.length; r1++) {
+      var row1 = rows[r1];
+      var f = rrClean_(row1[1]), slot = rrClean_(row1[2]);
+      if (rrUp_(row1[1]).indexOf('ARRIVAL') === 0 || rrUp_(row1[1]) === 'FLT') break;
+      if (!slot) continue;
+      if (f) curflt = f.replace(/\n/g, ' ');
+      for (var c = 3; c < row1.length; c++) {
+        split(row1[c]).forEach(function (p) {
+          var nm = get(p); if (nm) staff[nm].counter.push({ flts: curflt, time: slot });
+        });
+      }
+    }
+  }
+  // 2) gate per-flight
+  if (ga >= 0) {
+    var groles = rows[ga].slice(3).map(rrClean_);
+    for (var r2 = ga + 1; r2 < rows.length; r2++) {
+      var row2 = rows[r2], flt2 = rrClean_(row2[1]);
+      if (!/SU\d/i.test(flt2)) continue;
+      var sta = rrClean_(row2[2]);
+      info[flt2] = info[flt2] || {};
+      info[flt2].STA = sta.split('/')[0] || ''; info[flt2].STD = sta.indexOf('/') >= 0 ? sta.split('/')[1] : '';
+      for (var c2 = 3; c2 < row2.length; c2++) {
+        var role2 = groles[c2 - 3] || 'GATE';
+        split(row2[c2]).forEach(function (p) {
+          if (rrUp_(p) === 'SPVR') return;
+          var nm = get(p);
+          if (nm) staff[nm].flights.push({ flight: flt2, task: role2, STA: info[flt2].STA, STD: info[flt2].STD, OP: '', CL: '' });
+        });
+      }
+    }
+  }
+  // 3) job detail
+  if (jb >= 0) {
+    var jroles = rows[jb].slice(5).map(rrClean_);
+    for (var r3 = jb + 1; r3 < rows.length; r3++) {
+      var row3 = rows[r3], flt3 = rrClean_(row3[1]);
+      if (!/SU\d/i.test(flt3)) continue;
+      var opcls = rrClean_(row3[4]);
+      info[flt3] = info[flt3] || {};
+      if (opcls.indexOf('/') >= 0) { info[flt3].OP = opcls.split('/')[0]; info[flt3].CL = opcls.split('/')[1]; }
+      for (var c3 = 5; c3 < row3.length; c3++) {
+        var role3 = jroles[c3 - 5] || '';
+        split(row3[c3]).forEach(function (p) {
+          if (rrUp_(p) === 'PORTER CS') return;
+          var nm = get(p);
+          if (nm) staff[nm].flights.push({ flight: flt3, task: role3,
+            STA: info[flt3].STA || '', STD: info[flt3].STD || '', OP: info[flt3].OP || '', CL: info[flt3].CL || '' });
+        });
+      }
+    }
+  }
+
+  var recs = [];
+  Object.keys(staff).forEach(function (nm) {
+    var d = staff[nm], shift = '';
+    if (d.counter.length) {
+      var ts = d.counter.map(function (s) { return s.time; }).filter(function (t) { return /[-–:]/.test(t); });
+      if (ts.length) {
+        var first = ts[0].split(/[-–]/)[0].trim();
+        var last = ts[ts.length - 1].split(/[-–]/).pop().trim();
+        shift = first + '-' + last;
+      }
+    }
+    var assigns = d.flights.slice();
+    if (d.counter.length) {
+      var fset = {};
+      d.counter.forEach(function (s) { (s.flts.match(/SU\d+(?:\/\d+)?/ig) || []).forEach(function (x) { fset[x] = 1; }); });
+      assigns.unshift({ flight: 'CHECK-IN COMMON', task: Object.keys(fset).join(' '),
+        STA: '', STD: '', OP: d.counter[0].time, CL: d.counter[d.counter.length - 1].time });
+    }
+    recs.push({ team: team, id: '', name: nm, pos: '', shift: shift,
+      bucket: (assigns.length || shift) ? 'working' : 'off', ot: 0, assignments: assigns });
+  });
+  return recs;
+}
+
+function rrParseSheet_(ws) {
+  var name = ws.getName();
+  var n = name.trim().toUpperCase();
+  for (var i = 0; i < SKIP_SHEETS_RR.length; i++) if (n.indexOf(SKIP_SHEETS_RR[i]) >= 0) return null;
+  var last = ws.getLastRow();
+  if (last < 3) return null;
+  var rows = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 60)).getValues();
+  if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) {
+    // New "PORTER CREW SIGN" sheets use the standard ID/SHIFT layout; old ones
+    // are the STAFF NAME / SHIFT / REMARK grid. Prefer standard, fall back.
+    var cstd = rrParseStandard_(rows, name);
+    if (cstd && cstd.length) return cstd;
+    return rrParseCrewsign_(rows, name);
+  }
+  if (n === 'PORTER') {
+    // New PORTER sheets use the standard ID/REMARK layout; old ones are a
+    // 2-column name list. Prefer standard; fall back to the 2-column parser.
+    var pstd = rrParseStandard_(rows, name);
+    if (pstd && pstd.length) return pstd;
+    return rrParsePorter_(rows, name);
+  }
+  if (n.indexOf('ADMIN') >= 0 && n.indexOf('DOC') >= 0) return rrParseAdminDoc_(rows, name);
+  if (n === 'SU' || n.indexOf('SU ') === 0) {
+    // New SU template (effective 08 JUN) is a standard ID/REMARK staff table
+    // (with inline Counter/Gate sections); the old SU sheet is a counter-rotation
+    // grid with no ID column. Prefer the standard reader; fall back to the grid.
+    var std = rrParseStandard_(rows, name);
+    if (std && std.length) return std;
+    return rrParseSU_(rows, name);
+  }
+  return rrParseStandard_(rows, name);
+}
+
+// When both a base sheet and its REV version exist, keep the REV one.
+function rrFilterRev_(sheets) {
+  var names = sheets.map(function (s) { return s.getName(); });
+  var skip = {};
+  names.forEach(function (nm) {
+    if (nm.toUpperCase().indexOf('REV') < 0) return;
+    var base = nm.replace(/REV\.?\d*/ig, '').replace(/[\s._]+/g, '').toUpperCase();
+    names.forEach(function (o) {
+      if (o === nm || o.toUpperCase().indexOf('REV') >= 0) return;
+      if (o.replace(/\s+/g, '').toUpperCase() === base) skip[o] = true;
+    });
+  });
+  return sheets.filter(function (s) { return !skip[s.getName()]; });
+}
+
+// ─── public entry point ─────────────────────────────────────────────────────
+// Map a roster Position + team to an operational position group (exact, from
+// the assignment file — no master/manpower lookup needed).
+function rrPosGroup_(pos, team) {
+  var t = String(team || '').toUpperCase();
+  if (t.indexOf('CREW') >= 0) return 'Crewsign';
+  if (t.indexOf('PORTER') >= 0) return 'Porter';
+  if (t.indexOf('ADMIN') >= 0 && t.indexOf('DOC') >= 0) return 'AdminD';
+  if (t.indexOf('GLOB') >= 0) return 'Globlex';
+  var c = String(pos || '').toUpperCase().replace(/ACT\.?\s*/g, '').trim();
+  if (c.indexOf('DIRECTOR') >= 0) return 'DIR';
+  if (c.indexOf('ASSIST') >= 0 && c.indexOf('MANAGER') >= 0) return 'Assist';
+  if (c.indexOf('MANAGER') >= 0) return 'MGR';
+  if (c.indexOf('SUP') >= 0 || c === 'PSS') return 'PSS';
+  if (c.indexOf('SNR') >= 0 || c.indexOf('SENIOR') >= 0) return 'SNR';
+  if (c.indexOf('ADMIN') >= 0) return 'AdminD';
+  if (c.indexOf('PORTER') >= 0) return 'Porter';
+  return 'PSA';                                              // Agent / blank default
+}
+
+function rrAddBucket_(agg, r) {
+  if (r.bucket === 'working') agg.working++;
+  else if (r.bucket === 'ot_off') agg.ot_off++;
+  else if (r.bucket === 'off') agg.off++;
+  else if (r.bucket === 'sick') agg.sick++;
+  else if (r.bucket === 'vac') agg.leave++;
+  if (r.ot > 0) {
+    agg.otPeople++; agg.otHours += r.ot;
+    if (r.bucket === 'ot_off') { agg.otOffHrs += r.ot; }       // OT OFF hours (count = ot_off)
+    else if (r.otType === 'PRE') { agg.otPre++; agg.otPreHrs += r.ot; }
+    else { agg.otPost++; agg.otPostHrs += r.ot; }
+  }
+  agg.flights += (r.assignments ? r.assignments.length : 0);
+  agg.staff++;
+}
+function rrNewAgg_() {
+  return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, otPeople: 0, otHours: 0,
+           otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, otOffHrs: 0, flights: 0 };
+}
+function rrRoundAgg_(a) {
+  a.otHours = Math.round(a.otHours * 10) / 10; a.otPreHrs = Math.round(a.otPreHrs * 10) / 10;
+  a.otPostHrs = Math.round(a.otPostHrs * 10) / 10; a.otOffHrs = Math.round(a.otOffHrs * 10) / 10; return a;
+}
+
+function readRosterFromSpreadsheet(ss) {
+  if (!ss || typeof ss.getSheets !== 'function') {
+    throw new Error('readRosterFromSpreadsheet() ต้องส่ง Spreadsheet object — เป็นฟังก์ชันภายใน ' +
+      'อย่ารันตรงๆ จากปุ่ม Run. ให้รัน entry point แทน เช่น runDailyRosterReport(), ' +
+      'runLegacyToday(), runLegacyReport(2026,6,21) หรือ testRosterFromId(psaId, llId, 2026,6,21).');
+  }
+  var teams = {};
+  var positions = {};                                        // exact per-position-group rollup
+  var totals = rrNewAgg_();
+  rrFilterRev_(ss.getSheets()).forEach(function (ws) {
+    var recs = rrParseSheet_(ws);
+    if (!recs || !recs.length) return;
+    var t = rrNewAgg_();
+    t.records = recs;
+    recs.forEach(function (r) {
+      r.posGroup = rrPosGroup_(r.pos, ws.getName());
+      rrAddBucket_(t, r);
+      if (!positions[r.posGroup]) positions[r.posGroup] = rrNewAgg_();
+      rrAddBucket_(positions[r.posGroup], r);
+      rrAddBucket_(totals, r);
+    });
+    rrRoundAgg_(t);
+    teams[ws.getName().trim()] = t;
+  });
+  Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
+  rrRoundAgg_(totals);
+  delete totals.records;
+  return { teams: teams, positions: positions, totals: totals };
+}
+
+// ─── debug ──────────────────────────────────────────────────────────────────
+function debugDumpRoster(ssId) {
+  var ss = ssId ? SpreadsheetApp.openById(ssId) : SpreadsheetApp.getActiveSpreadsheet();
+  var res = readRosterFromSpreadsheet(ss);
+  var lines = ['TEAM              staff work otoff off sick leave otppl   oth  flts'];
+  Object.keys(res.teams).forEach(function (t) {
+    var b = res.teams[t];
+    lines.push((t + '                  ').slice(0, 18) +
+      [b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours, b.flights]
+        .map(function (n) { return ('     ' + n).slice(-6); }).join(''));
+  });
+  var T = res.totals;
+  lines.push('TOTAL             ' +
+    [T.staff, T.working, T.ot_off, T.off, T.sick, T.leave, T.otPeople, T.otHours, T.flights]
+      .map(function (n) { return ('     ' + n).slice(-6); }).join(''));
+  lines.push('');
+  lines.push('BY POSITION       staff work otoff off sick leave otppl   oth  flts');
+  ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign', 'DIR', 'MGR', 'Assist'].forEach(function (p) {
+    var b = res.positions[p]; if (!b) return;
+    lines.push((p + '                  ').slice(0, 18) +
+      [b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours, b.flights]
+        .map(function (n) { return ('     ' + n).slice(-6); }).join(''));
+  });
+  Logger.log(lines.join('\n'));
+  return res;
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// ===== LLReader.gs =====
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * LLReader.gs — LL (ติดตามสัมภาระ / baggage tracing) daily assignment reader
+ * =============================================================================
+ * The LL daily tab is sectioned by job area (SOD / CENTER / RUSH BAG /
+ * FOUND PROPERTY / TRAINEE / ADMIN / LL PORTER). Each section repeats the
+ * header: NO | NAME | POSITION | SCHEDULE | RESKED | REMARK | OT code | OT time
+ * | job columns…
+ *
+ * Attendance for LL comes from SCHEDULE (there is no Onduty/Off REMARK):
+ *   OFF / blank → off,  SL/SICK → sick,  VAC/BL → leave,  time range → working.
+ *
+ * Requires RosterReader.gs (reuses rrClean_, rrUp_, rrOtHours_, rrNewAgg_,
+ * rrAddBucket_). Returns the same aggregate shape as readRosterFromSpreadsheet,
+ * with `sections` in place of `teams`.
+ *
+ * SHARED READER: consumed by both the web dashboard bot and the legacy report.
+ */
+
+function rrLLPosGroup_(pos) {
+  var u = String(pos || '').toUpperCase().replace(/ACT\.?\s*/g, '').trim();
+  if (u.indexOf('PSS') === 0 || u.indexOf('SUPERVISOR') >= 0) return 'PSS';
+  if (u.indexOf('SNR') === 0 || u.indexOf('SENIOR') >= 0) return 'SNR';
+  if (u.indexOf('TRAINEE') >= 0) return 'Trainee';
+  if (u.indexOf('PORTER') >= 0) return 'Porter';
+  if (u.indexOf('ADMIN') >= 0) return 'Admin';
+  if (u.indexOf('PSA') === 0 || u.indexOf('AGENT') >= 0) return 'PSA';
+  return 'PSA';
+}
+
+function rrLLClassify_(sched, resked, remark) {
+  // RESKED may carry a status (SICK / VAC / OFF) that overrides the schedule.
+  var rs = rrUp_(resked).trim();
+  if (rs === 'SICK' || rs === 'SL' || rs === 'MC') return 'sick';
+  if (rs === 'VAC' || rs === 'BL' || rs === 'AL') return 'vac';
+  if (rs === 'OFF' || rs === 'X' || rs === 'XX') return 'off';
+  var s = rrUp_(sched).trim();
+  var rm = rrUp_(remark);
+  if (s === 'SL' || s === 'SICK' || s === 'MC' || rm.indexOf('SICK') >= 0) return 'sick';
+  if (s === 'VAC' || s === 'BL' || s === 'AL' || s.indexOf('VAC') >= 0) return 'vac';
+  if (s === '' || s === 'OFF' || s === 'X' || s === 'XX' || s.indexOf('OFF') === 0) return 'off';
+  return 'working';
+}
+
+/** Parse one LL daily tab → { sections, positions, totals }. */
+function readLLFromTab(ss, tabName) {
+  var ws = ss.getSheetByName(tabName);
+  if (!ws) throw new Error('ไม่พบแท็บ LL: ' + tabName);
+  var last = ws.getLastRow();
+  var rows = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 12)).getValues();
+
+  var sections = {}, positions = {}, totals = rrNewAgg_();
+  var section = '', seen = {};
+
+  rows.forEach(function (r) {
+    var c0 = rrClean_(r[0]);
+    if (c0 && rrUp_(r[1]) === 'NO' && rrUp_(r[2]) === 'NAME') { section = c0.replace(/\n/g, ' '); return; }
+    var no = rrClean_(r[1]), name = rrClean_(r[2]), pos = rrClean_(r[3]);
+    if (!name || !pos || rrUp_(r[2]) === 'NAME') return;
+    if (!/^\d+(\.\d+)?$/.test(no)) return;
+    var key = name.toUpperCase();
+    if (seen[key]) return;
+    seen[key] = true;
+
+    var sched = rrClean_(r[4]), resked = rrClean_(r[5]), remark = rrClean_(r[6]), ot = rrClean_(r[8]);
+    var oth = rrOtHours_(ot);
+    var srng = rrRangeStr_(resked || sched), orng = rrRangeStr_(ot);
+    var rec = {
+      section: section, name: name, pos: pos, posGroup: rrLLPosGroup_(pos), team: section,
+      shift: resked || sched, shiftTime: rrFmtRange_(srng) || (resked || sched), shiftStart: srng[0],
+      bucket: rrLLClassify_(sched, resked, remark),
+      ot: oth, otType: oth > 0 ? rrOtType_(srng, orng, false) : null, otTime: oth > 0 ? rrFmtRange_(orng) : '',
+      assignments: [],
+    };
+    var sk = section || '(none)';
+    if (!sections[sk]) { sections[sk] = rrNewAgg_(); sections[sk].records = []; }
+    sections[sk].records.push(rec);
+    rrAddBucket_(sections[sk], rec);
+    if (!positions[rec.posGroup]) positions[rec.posGroup] = rrNewAgg_();
+    rrAddBucket_(positions[rec.posGroup], rec);
+    rrAddBucket_(totals, rec);
+  });
+
+  Object.keys(sections).forEach(function (s) { rrRoundAgg_(sections[s]); });
+  Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
+  rrRoundAgg_(totals);
+  delete totals.records;
+  return { sections: sections, positions: positions, totals: totals };
+}
+
+/** Find the LL daily tab for a date. Handles "06JUN26" and "6 JUN 2569" forms. */
+function findLLTab_(ss, date) {
+  var d = date.getDate();
+  var dPad = ('0' + d).slice(-2);
+  var mon = MON_RB[date.getMonth()];               // from RosterBot.gs
+  var yr2 = String(date.getFullYear()).slice(2);
+  var be = date.getFullYear() + 543;
+  var pats = [
+    new RegExp('^' + dPad + '\\s*' + mon + yr2 + '$', 'i'),       // 06JUN26
+    new RegExp('^' + dPad + '\\s*' + mon + '$', 'i'),            // 06JUN
+    new RegExp('^' + d + '\\s*' + mon + '\\s*' + be + '$', 'i'),  // 6 JUN 2569
+    new RegExp('^' + d + '\\s*' + mon + yr2 + '$', 'i'),         // 6JUN26
+    new RegExp('^' + d + '\\s*' + mon + '$', 'i'),               // 6 JUN
+  ];
+  var sheets = ss.getSheets();
+  for (var p = 0; p < pats.length; p++) {
+    for (var i = 0; i < sheets.length; i++) {
+      if (pats[p].test(sheets[i].getName().trim())) return sheets[i].getName();
+    }
+  }
+  return null;
+}
+
+/** Open the LL file (by id) and read the tab for the given date. */
+function readLLForDate(llFileId, date) {
+  var ss = SpreadsheetApp.openById(llFileId);
+  var tab = findLLTab_(ss, date);
+  if (!tab) throw new Error('ไม่พบแท็บ LL สำหรับวันที่ ' + date.getDate());
+  var res = readLLFromTab(ss, tab);
+  res.tabName = tab;
+  return res;
+}
+
+function debugDumpLL(llFileId, y, m, d) {
+  var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
+  var res = readLLForDate(llFileId, date);
+  var lines = ['LL tab: ' + res.tabName, '', 'BY POSITION  staff work off sick leave otppl oth'];
+  ['PSS', 'SNR', 'PSA', 'Porter', 'Admin', 'Trainee'].forEach(function (p) {
+    var b = res.positions[p]; if (!b) return;
+    lines.push((p + '         ').slice(0, 9) +
+      [b.staff, b.working, b.off, b.sick, b.leave, b.otPeople, b.otHours].map(function (n) { return ('    ' + n).slice(-5); }).join(''));
+  });
+  var T = res.totals;
+  lines.push('TOTAL    ' + [T.staff, T.working, T.off, T.sick, T.leave, T.otPeople, T.otHours].map(function (n) { return ('    ' + n).slice(-5); }).join(''));
+  Logger.log(lines.join('\n'));
+  return res;
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// ===== MasterReader.gs =====
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * MasterReader.gs — establishment headcount + employee roster from the MASTER file
+ * =============================================================================
+ * The Pax Manpower master ("Total" sheet) lists every employee with their team,
+ * department and status. This gives the *establishment* headcount (all active
+ * staff) for PSA (การโดยสาร) and LL (ติดตามสัมภาระ) — independent of who is on
+ * duty today.
+ *
+ * Two consumers, ONE read pass (readMaster_):
+ *   • readMasterHeadcount(id)  -> { PSA:{total,byPos}, LL:{total,byPos}, active }
+ *     Used by the web dashboard bot (RosterBot.gs / WebDashboard.gs) to show the
+ *     "จำนวนพนักงานทั้งหมด (Active)" line.
+ *   • readMaster_(id)          -> { employees, byId, headcount, activeCount, ... }
+ *     Used by the legacy report (Reconcile.gs) for MASTER-based OFF counting:
+ *     every operational employee not found in today's assignment file counts as
+ *     OFF, so the daily Off figure is accurate (not just "people in the file").
+ *
+ * Master "Total" sheet columns (0-indexed):
+ *   1 ID | 2 Team | 4 NameTH | 6 Dept | 7 Position | 10 NameEN | 12 ResignDate | 13 Status
+ */
+
+// ID ไฟล์ Pax Manpower master — ต้องเข้าได้จึงจะนับ OFF จาก establishment ได้
+var MASTER_FILE_ID_RB = '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8';
+var DEPT_PSA_TH = 'การโดยสาร';
+var DEPT_LL_TH  = 'ติดตามสัมภาระ';
+
+// Operational position groups (the ones that appear on daily assignment sheets).
+// Non-operational groups (DIR/MGR/Assist/OFFICE/LL_ADMIN) are counted in the
+// establishment headcount but excluded from the daily on-duty reconciliation.
+var MR_OPERATIONAL_GROUPS = ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign'];
+
+/**
+ * Rich position mapper (ported from the legacy v3.1 bot). Distinguishes the
+ * management / admin / borrowed-desk groups the legacy Chat + PDF report needs.
+ * RosterReader.rrPosGroup_ is the lean operational mapper used by the daily
+ * reader; this one is for the MASTER establishment breakdown.
+ */
+function mapPosition_(rawPos, team) {
+  var s = String(rawPos || '').trim();
+  if (!s) return 'PSA';
+  var up = s.toUpperCase();
+  var teamUp = String(team || '').trim().toUpperCase();
+  if (up.indexOf('DIRECTOR') >= 0) return 'DIR';
+  var core = up.replace(/^ACT(?:\.|ING)?\.?\s+/, '').replace(/^ACT\./, '');
+  if (core.indexOf('ASSISTANT MANAGER') >= 0 || core.indexOf('ASSIST MANAGER') >= 0) return 'Assist';
+  if (core.indexOf('MANAGER') >= 0) return 'MGR';
+  if (core.indexOf('SUPERVISOR') >= 0)     return 'PSS';
+  if (core.indexOf('SENIOR ADMIN') >= 0)   return teamUp.indexOf('PORTER') >= 0 ? 'AdminP' : 'AdminD';
+  if (core.indexOf('SENIOR') >= 0)         return 'SNR';
+  if (core.indexOf('ADMINISTRATIVE') >= 0) return teamUp.indexOf('PORTER') >= 0 ? 'AdminP' : 'AdminD';
+  if (core.indexOf('PORTER') >= 0)         return 'Porter';
+  if (core.indexOf('AGENT') >= 0)          return 'PSA';
+  return 'PSA';
+}
+
+/** First name (upper) from EN name (preferred) or TH name, for fuzzy matching. */
+function mrFirstName_(nameEN, nameTH) {
+  var firstName = '';
+  if (nameEN) {
+    var parts = String(nameEN).replace(/^(MR|MRS|MS|MISS|MS\.|MR\.|MRS\.)\.?\s+/i, '').split(/\s+/);
+    if (parts[0]) firstName = parts[0].toUpperCase();
+  }
+  if (!firstName && nameTH) {
+    var thParts = String(nameTH).split(/\s+/);
+    firstName = (thParts[1] || thParts[0] || '').toUpperCase();
+  }
+  return firstName;
+}
+
+/**
+ * Full single-pass read of the MASTER "Total" sheet.
+ * Returns { employees, byId, headcount:{PSA,LL,active}, activeCount, operationalCount }.
+ */
+function readMaster_(masterFileId) {
+  var ss = SpreadsheetApp.openById(masterFileId || MASTER_FILE_ID_RB);
+  var ws = ss.getSheetByName('Total');
+  if (!ws) throw new Error('Master: ไม่พบชีต "Total"');
+  var data = ws.getDataRange().getValues();
+
+  var employees = [], byId = {};
+  var headcount = { PSA: { total: 0, byPos: {} }, LL: { total: 0, byPos: {} }, active: 0 };
+  var now = new Date();
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var idStr = String(row[1] == null ? '' : row[1]).replace(/\.0*$/, '').trim();
+    if (!/^\d{6,8}$/.test(idStr.replace(/\D/g, ''))) continue;
+
+    var status = String(row[13] || '').trim();
+    if (status === 'Resigned') continue;
+    if (status !== 'Active') {
+      var rd = row[12];
+      if (rd instanceof Date && rd < now) continue;          // already left
+    }
+
+    var dept = String(row[6] || '');
+    var deptKey = dept.indexOf(DEPT_PSA_TH) >= 0 ? 'PSA' : (dept.indexOf(DEPT_LL_TH) >= 0 ? 'LL' : null);
+    if (!deptKey) continue;
+
+    var team = String(row[2] || '');
+    var posRaw = String(row[7] || '').trim();
+    var posGroup = (deptKey === 'LL') ? mapPositionLL_(posRaw) : mapPosition_(posRaw, team);
+
+    // team-based posGroup adjustments (matches legacy bot grouping)
+    if (deptKey === 'PSA') {
+      var teamUp = team.toUpperCase();
+      if (teamUp.indexOf('CREWSIGN') >= 0) posGroup = 'Crewsign';
+      else if (teamUp.indexOf('GLOBLEX') >= 0 || teamUp.indexOf('GLOBEX') >= 0) posGroup = 'Globlex';
+      else if (teamUp === 'ADMIN DOC') posGroup = 'AdminD';
+      else if (teamUp.indexOf('ADMIN PORTER') >= 0) posGroup = 'Porter';
+      else if (teamUp === 'OFFICE' && ['DIR', 'MGR', 'Assist'].indexOf(posGroup) < 0) posGroup = 'OFFICE';
+    } else {
+      var teamUpLL = team.toUpperCase();
+      if (teamUpLL.indexOf('ADMIN') >= 0 && ['DIR', 'MGR', 'Assist'].indexOf(posGroup) < 0) posGroup = 'LL_ADMIN';
+    }
+    if (!posGroup) posGroup = 'PSA';
+
+    var operational = MR_OPERATIONAL_GROUPS.indexOf(posGroup) >= 0;
+    var emp = {
+      id: idStr, team: team, dept: deptKey,
+      position: posRaw, posGroup: posGroup,
+      firstName: mrFirstName_(row[10], row[4]),
+      operational: operational,
+    };
+    employees.push(emp);
+    byId[idStr] = emp;
+
+    headcount[deptKey].total++;
+    headcount[deptKey].byPos[posGroup] = (headcount[deptKey].byPos[posGroup] || 0) + 1;
+    headcount.active++;
+  }
+
+  var operationalCount = employees.filter(function (e) { return e.operational; }).length;
+  return {
+    employees: employees, byId: byId, headcount: headcount,
+    activeCount: headcount.active, operationalCount: operationalCount,
+  };
+}
+
+/** LL position mapper (ported from the legacy bot) — only operational LL groups. */
+function mapPositionLL_(rawPos) {
+  var s = String(rawPos || '').trim();
+  if (!s) return 'PSA';
+  var up = s.toUpperCase();
+  if (up.indexOf('DIRECTOR') >= 0) return 'LL_ADMIN';
+  if (up.indexOf('MANAGER') >= 0) return 'LL_ADMIN';
+  if (up.indexOf('ADMIN') >= 0) return 'Admin';
+  if (up === 'PSS' || up.indexOf('SUPERVISOR') >= 0) return 'PSS';
+  if (up === 'SNR' || up.indexOf('SENIOR') >= 0) return 'SNR';
+  if (up.indexOf('PORTER') >= 0) return 'Porter';
+  if (up === 'PSA' || up === 'NEW PSA' || up.indexOf('AGENT') >= 0) return 'PSA';
+  return 'PSA';
+}
+
+/**
+ * Thin wrapper for the web dashboard bot — returns just the establishment
+ * headcount in the shape RosterBot.gs / WebDashboard.gs expect. Returns null
+ * (and logs) if the master file can't be opened, so the report still runs.
+ */
+function readMasterHeadcount(masterFileId) {
+  try {
+    return readMaster_(masterFileId || MASTER_FILE_ID_RB).headcount;
+  } catch (e) {
+    Logger.log('⚠️ Master: เข้าไฟล์ไม่ได้ (' + e.message + ') → ข้าม (รายงานยังออกได้)');
+    return null;
+  }
+}
+
+function debugDumpMaster(masterFileId) {
+  var hc = readMasterHeadcount(masterFileId);
+  if (!hc) { Logger.log('Master: not available'); return null; }
+  Logger.log('Active: %s  |  PSA %s  LL %s  รวม %s',
+    hc.active, hc.PSA.total, hc.LL.total, hc.PSA.total + hc.LL.total);
+  Logger.log('PSA byPos: %s', JSON.stringify(hc.PSA.byPos));
+  Logger.log('LL  byPos: %s', JSON.stringify(hc.LL.byPos));
+  return hc;
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// ===== SLA.gs =====
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * SLA.gs — airline SLA (service level) staffing check + daily flight list.
+ * =============================================================================
+ * For each flight in the day's roster it counts how many staff were assigned to
+ * each phase (Supervisor / Check-in / Gate / Arrival) and compares against the
+ * airline SLA requirement, flagging shortages (which phase, how many short) =
+ * the "support needed" check. (Renamed from the old SOP_* naming to SLA_*.)
+ *
+ * Requires RosterReader.gs (res = readRosterFromSpreadsheet()).
+ */
+
+// ── Airline SLA: required headcount per phase (job_roles carry the breakdown) ──
+var SLA_DB = {
+  'SQ': { total: 13, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:4,phase:'CI'},{role:'GATE AGENT',count:2,phase:'GATE'},{role:'BOARDING',count:4,phase:'GATE'}] },
+  'CX': { total: 15, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:5,phase:'CI'},{role:'GATE AGENT',count:2,phase:'GATE'},{role:'BOARDING',count:5,phase:'GATE'}] },
+  'LY': { total: 13, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:7,phase:'CI'},{role:'GATE AGENT',count:1,phase:'GATE'},{role:'BOARDING',count:3,phase:'GATE'}] },
+  'QR': { total: 20, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CONTROLLER',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:10,phase:'CI'},{role:'ARRIVAL',count:3,phase:'ARR'},{role:'GATE/MONITOR',count:4,phase:'GATE'}] },
+  'MH': { total: 9,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:3,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE/BIR',count:2,phase:'GATE'},{role:'GATE/MAAS',count:1,phase:'GATE'}] },
+  'DE': { total: 11, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:3,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE/MONITOR',count:4,phase:'GATE'}] },
+  'PG': { total: 9,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'GATE MONITOR',count:2,phase:'GATE'},{role:'GATE INT',count:1,phase:'GATE'},{role:'DEPARTURE',count:1,phase:'GATE'},{role:'GATE AGENT',count:3,phase:'GATE'},{role:'ARRIVAL',count:2,phase:'ARR'}] },
+  'AK': { total: 8,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN',count:2,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE/FLIGHT',count:1,phase:'GATE'},{role:'GATE',count:2,phase:'GATE'}] },
+  'QZ': { total: 8,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN',count:2,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE/FLIGHT',count:1,phase:'GATE'},{role:'GATE',count:2,phase:'GATE'}] },
+  'SU': { total: 23, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'GATE MONITOR',count:1,phase:'GATE'},{role:'CHECK-IN',count:16,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE AGENT',count:4,phase:'GATE'}] },
+  'B2': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:7,phase:'CI'}] },
+  'W5': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:7,phase:'CI'}] },
+  '3U': { total: 11, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN',count:3,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE/SOD',count:1,phase:'GATE'},{role:'GATE',count:4,phase:'GATE'}] },
+  'CA': { total: 12, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN',count:5,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE MONITOR',count:2,phase:'GATE'},{role:'GATE',count:2,phase:'GATE'}] },
+  'MU': { total: 11, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:5,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:4,phase:'GATE'}] },
+  'CZ': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:4,phase:'GATE'}] },
+  'FM': { total: 11, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:5,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:4,phase:'GATE'}] },
+  'HO': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:2,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'HU': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:4,phase:'GATE'}] },
+  'AQ': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'HX': { total: 11, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:5,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:4,phase:'GATE'}] },
+  'EY': { total: 11, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'SOD/CTR',count:1,phase:'CI'},{role:'J-CLASS',count:2,phase:'CI'},{role:'BOARDING',count:5,phase:'GATE'},{role:'ARRIVAL',count:1,phase:'ARR'}] },
+  'AY': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'DV': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'KE': { total: 8,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'ASST GC',count:1,phase:'CI'},{role:'CHECK-IN',count:4,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARRIVAL',count:1,phase:'ARR'}] },
+  'KC': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI GK',count:1,phase:'CI'},{role:'CI',count:5,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARR',count:1,phase:'ARR'}] },
+  'OZ': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARR',count:1,phase:'ARR'}] },
+  'NO': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARR',count:1,phase:'ARR'}] },
+  'AF': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:5,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARR',count:2,phase:'ARR'}] },
+  'LJ': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARR',count:1,phase:'ARR'}] },
+  'WY': { total: 15, job_roles: [{role:'SUPERVISOR 1',count:1,phase:'ALL'},{role:'SUPERVISOR 2',count:1,phase:'ALL'},{role:'CHECK-IN',count:6,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE',count:6,phase:'GATE'}] },
+  'G9': { total: 6,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
+  'DK': { total: 6,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
+  '9C': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:1,phase:'GATE'}] },
+  'EK': { total: 16, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'SOD/DOCUMENT',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:3,phase:'CI'},{role:'ARRIVAL',count:4,phase:'ARR'},{role:'GATE/BIR',count:2,phase:'GATE'},{role:'GATE/MAAS',count:1,phase:'GATE'},{role:'CREW ASSIGN',count:1,phase:'GATE'},{role:'CF',count:1,phase:'GATE'}] },
+  'UO': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:2,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'FY': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:3,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  '6B': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'BY': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'AI': { total: 12, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FC/CTR-BC',count:2,phase:'CI'},{role:'SOD',count:1,phase:'CI'},{role:'ARRIVAL',count:2,phase:'ARR'},{role:'FC/PFD',count:1,phase:'GATE'},{role:'GATE',count:4,phase:'GATE'}] },
+  'IX': { total: 5,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'SOD',count:1,phase:'CI'},{role:'CI GK',count:1,phase:'CI'},{role:'CI',count:2,phase:'CI'}] },
+  'JQ': { total: 15, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'SOD/GTE',count:1,phase:'CI'},{role:'SOD/CTR',count:1,phase:'CI'},{role:'FC/CTR-BC',count:2,phase:'CI'},{role:'SD',count:1,phase:'CI'},{role:'FC/PFD',count:1,phase:'GATE'},{role:'ARRIVAL',count:3,phase:'ARR'},{role:'GATE',count:5,phase:'GATE'}] },
+  'IT': { total: 8,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'SOD',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:2,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE',count:2,phase:'GATE'}] },
+  'N0': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:2,phase:'GATE'}] },
+  'TK': { total: 11, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'SOD',count:1,phase:'CI'},{role:'GATE MONITOR',count:1,phase:'GATE'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CREW SIGN',count:1,phase:'ALL'},{role:'ARRIVAL',count:2,phase:'ARR'},{role:'BOGO',count:1,phase:'GATE'},{role:'Y-CLASS',count:2,phase:'GATE'},{role:'CHECK-IN',count:1,phase:'CI'}] },
+  'VJ': { total: 5,  job_roles: [{role:'SOD',count:1,phase:'ALL'},{role:'GM',count:1,phase:'GATE'},{role:'FC',count:1,phase:'CI'},{role:'CS',count:1,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
+  'OD': { total: 5,  job_roles: [{role:'SOD',count:1,phase:'ALL'},{role:'GM',count:1,phase:'GATE'},{role:'FC',count:1,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
+  'SG': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:2,phase:'GATE'}] },
+  'HY': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:2,phase:'GATE'}] },
+  'TR': { total: 10, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'SOD',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:2,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  '6E': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'FC',count:1,phase:'CI'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
+  'QP': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'FC',count:1,phase:'CI'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
+  'SV': { total: 14, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'MONITOR',count:1,phase:'ALL'},{role:'CI',count:7,phase:'CI'},{role:'ARR',count:2,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'WK': { total: 14, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'MONITOR',count:1,phase:'ALL'},{role:'CI',count:7,phase:'CI'},{role:'ARR',count:2,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'KA': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:5,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'ZF': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'FC',count:1,phase:'CI'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
+  'DEFAULT': { total: 8, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'CHECK-IN',count:4,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE',count:2,phase:'GATE'}] },
+};
+var SLA_ALIAS = { '8M':'QZ', 'HB':'DEFAULT', 'G2':'DEFAULT', 'H4':'DEFAULT', 'WZ':'ZF', 'N4':'DEFAULT', 'C6':'DEFAULT', 'EO':'ZF', 'S7':'ZF', 'LO':'ZF', 'HH':'ZF', 'OM':'DE', 'OV':'LJ' };
+
+// Official establishment requirement per team (SUP/SNR/PSA) from the AOTGA
+// Manpower Meeting file — the FULL roster needed, not the daily on-duty count.
+// (Used for HR headcount planning vs the master active headcount, not the daily
+// flight SLA above.)
+var TEAM_SLA_RQ = {
+  'SQ':{SUP:8,SNR:8,PSA:46,total:62}, 'QR':{SUP:8,SNR:8,PSA:92,total:108}, 'PG':{SUP:4,SNR:4,PSA:28,total:36},
+  'AK':{SUP:7,SNR:6,PSA:27,total:40}, 'SU':{SUP:10,SNR:10,PSA:44,total:64}, 'KE':{SUP:7,SNR:9,PSA:63,total:79},
+  'EY':{SUP:5,SNR:5,PSA:51,total:61}, 'JQ':{SUP:6,SNR:7,PSA:32,total:45}, 'TK':{SUP:6,SNR:7,PSA:30,total:43},
+  'TR':{SUP:9,SNR:12,PSA:38,total:59}, 'WY':{SUP:9,SNR:12,PSA:36,total:57}, 'EK':{SUP:7,SNR:7,PSA:39,total:53},
+  'WK':{SUP:4,SNR:6,PSA:30,total:40}, 'CHN':{SUP:11,SNR:10,PSA:58,total:79},
+};
+
+function slaGet_(airline) {
+  var c = String(airline || '').trim().toUpperCase();
+  if (SLA_DB[c]) return SLA_DB[c];
+  if (SLA_ALIAS[c] && SLA_DB[SLA_ALIAS[c]]) return SLA_DB[SLA_ALIAS[c]];
+  return SLA_DB.DEFAULT;
+}
+function slaAirlineOf_(flight) {
+  var m = String(flight || '').trim().toUpperCase().match(/([A-Z]{1,3})\s*\d/);
+  return m ? m[1] : 'DEFAULT';
+}
+/** required headcount per phase for an airline */
+function slaReq_(airline) {
+  var db = slaGet_(airline);
+  var req = { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: db.total || 0 };
+  (db.job_roles || []).forEach(function (r) {
+    var ph = r.phase === 'ALL' ? 'SUP' : r.phase;
+    if (req[ph] === undefined) ph = 'CI';
+    req[ph] += r.count;
+  });
+  return req;
+}
+/** classify a job task code into a phase */
+function slaPhaseOf_(task) {
+  var u = String(task || '').toUpperCase();
+  if (!u) return 'CI';
+  if (/SUP|SPVR|^SOD|SM\b|MONITOR|CREW|^CS\b|CRW/.test(u)) return 'SUP';
+  if (/ARR|MEET|^AC\b|^RF\b|ESCORT|BIR/.test(u)) return 'ARR';
+  if (/GATE|^G[\b\/CM-]|^GM|^GC|BOARD|^B\b|BGO|BOCO|MAAS|PFD|GBD|^D\b|DEPART/.test(u)) return 'GATE';
+  return 'CI';   // check-in default (CT, C, Y, J, W, F, WEB, KIOSK, PSM, FC, GK, SD...)
+}
+
+/** collect all flights from the day's roster (PSA + LL), with assigned staff. */
+function slaCollectFlights_(res, ll) {
+  var flights = {};
+  function add(team, rec) {
+    (rec.assignments || []).forEach(function (a) {
+      var key = String(a.flight || '').trim();
+      if (!key) return;
+      if (!flights[key]) {
+        flights[key] = { flight: key, airline: slaAirlineOf_(key), teams: {},
+          STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '',
+          assigned: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
+      }
+      var f = flights[key];
+      f.teams[team] = true;
+      if (!f.STA && a.STA) f.STA = a.STA; if (!f.STD && a.STD) f.STD = a.STD;
+      if (!f.OP && a.OP) f.OP = a.OP; if (!f.CL && a.CL) f.CL = a.CL;
+      var ph = slaPhaseOf_(a.task);
+      f.assigned[ph]++; f.assigned.total++;
+      f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: ph });
+    });
+  }
+  Object.keys(res.teams).forEach(function (t) {
+    res.teams[t].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') add(t, r); });
+  });
+  if (ll && ll.totals.staff > 0) {
+    Object.keys(ll.sections).forEach(function (s) {
+      ll.sections[s].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') add('LL·' + s, r); });
+    });
+  }
+  // compute requirement + shortages per flight
+  return Object.keys(flights).map(function (k) {
+    var f = flights[k];
+    f.req = slaReq_(f.airline);
+    f.short = {};
+    ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
+      var d = f.req[ph] - f.assigned[ph];
+      if (d > 0) f.short[ph] = d;
+    });
+    f.shortTotal = Math.max(0, f.req.total - f.assigned.total);
+    f.ok = Object.keys(f.short).length === 0 && f.shortTotal === 0;
+    f.teamList = Object.keys(f.teams).join(',');
+    return f;
+  }).sort(function (a, b) { return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz')); });
+}
+
+var SLA_PH_TH = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
+function slaShortText_(f) {
+  var parts = [];
+  ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) { if (f.short[ph]) parts.push(SLA_PH_TH[ph] + ' ขาด ' + f.short[ph]); });
+  return parts.length ? parts.join(' · ') : (f.shortTotal ? ('ขาดรวม ' + f.shortTotal) : '');
+}
+
+/** Sheet tab: ✈️ Flights & SLA — day's flights + required vs assigned + shortage */
+function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
+  tabName = tabName || '✈️ Flights & SLA';
+  var old = ss.getSheetByName(tabName);
+  if (old) ss.deleteSheet(old);
+  var sh = ss.insertSheet(tabName);
+
+  var flights = slaCollectFlights_(res, ll);
+  var W = 13;
+  sh.getRange(1, 1, 1, W).merge().setValue('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน — ' + dateStr)
+    .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 28);
+  var head = ['Flight', 'สายการบิน', 'ทีม', 'STA', 'STD', 'OP', 'CL', 'ส่งไป(คน)', 'SLA ต้องการ', 'SUP', 'Check-in', 'Gate', 'Arrival'];
+  sh.getRange(2, 1, 1, W).setValues([head]).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
+    .setHorizontalAlignment('center');
+  var body = [], status = [];
+  flights.forEach(function (f) {
+    function cell(ph) { return f.assigned[ph] + '/' + f.req[ph] + (f.short[ph] ? ' ⚠️-' + f.short[ph] : ' ✓'); }
+    body.push([f.flight, f.airline, f.teamList, f.STA, f.STD, f.OP, f.CL,
+               f.assigned.total, f.req.total, cell('SUP'), cell('CI'), cell('GATE'), cell('ARR')]);
+    status.push(f.ok);
+  });
+  if (body.length) {
+    sh.getRange(3, 1, body.length, W).setValues(body).setFontSize(9).setVerticalAlignment('middle');
+    for (var i = 0; i < body.length; i++) {
+      var bg = status[i] ? '#e8f5e9' : '#fff3cd';
+      sh.getRange(3 + i, 1, 1, W).setBackground(i % 2 ? bg : bg);
+      if (!status[i]) sh.getRange(3 + i, 1, 1, W).setBackground('#fde8e8');
+    }
+  }
+  [110, 75, 90, 55, 55, 55, 55, 70, 80, 70, 80, 70, 70].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(2);
+  return flights;
+}
+
+/** Sheet tab: 🆘 Support — only the understaffed flights, which phase is short */
+function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
+  tabName = tabName || '🆘 Support';
+  var old = ss.getSheetByName(tabName);
+  if (old) ss.deleteSheet(old);
+  var sh = ss.insertSheet(tabName);
+  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok; });
+
+  sh.getRange(1, 1, 1, 7).merge().setValue('🆘 ไฟลท์ที่ส่งพนักงานไม่ครบตาม SLA — ' + dateStr)
+    .setBackground('#b71c1c').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 28);
+  sh.getRange(2, 1, 1, 7).setValues([['Flight', 'สายการบิน', 'ทีม', 'STD', 'ส่งไป/ต้องการ', 'ขาดตำแหน่ง (phase)', 'รายละเอียด']])
+    .setBackground('#d32f2f').setFontColor('#fff').setFontWeight('bold').setHorizontalAlignment('center');
+  if (!flights.length) {
+    sh.getRange(3, 1, 1, 7).merge().setValue('✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA').setBackground('#e8f5e9')
+      .setFontWeight('bold').setFontColor('#1b5e20').setHorizontalAlignment('center');
+  } else {
+    var rows = flights.map(function (f) {
+      return [f.flight, f.airline, f.teamList, f.STD || f.STA, f.assigned.total + '/' + f.req.total,
+              slaShortText_(f),
+              f.staff.map(function (s) { return s.name + '[' + s.task + ']'; }).slice(0, 8).join(', ')];
+    });
+    sh.getRange(3, 1, rows.length, 7).setValues(rows).setFontSize(9).setBackground('#fff3f3');
+  }
+  [110, 75, 100, 55, 100, 200, 320].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(2);
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// ===== Validation.gs =====
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Validation.gs — flight-conflict + OT-missing checks (adapted from Roster v2.0)
+ * =============================================================================
+ * Adds the two operational sanity checks from the "ROSTER DAILY ASSIGNMENT →
+ * GOOGLE SHEET v2.0" script, built on the SHARED reader records (no bespoke
+ * per-team parsing — RosterReader already extracts each assignment's
+ * STA/STD/OP/CL):
+ *
+ *   • Flight conflict — one person assigned to 2+ flights whose times overlap.
+ *   • OT missing      — a flight's STD/CL runs past the person's shift end but
+ *                       no OT is recorded.
+ *
+ * Output: an "🚨 Issues" tab in the monthly file + an optional alert posted to a
+ * SECOND Google Chat room (Script Property CONFIG_RB.CHAT_ALERT_PROP). The main
+ * dashboard / chat (Bot A) is unchanged; this is purely additive.
+ *
+ * Requires RosterReader.gs (rrClean_/rrMin_/rrRangeStr_/rrFmtMin_) + RosterBot.gs.
+ */
+
+// minutes-of-day from a single time cell ('HH:MM' / '0740' / Date) — reuse rrMin_
+function valMin_(t) { return rrMin_(t); }
+function valFmt_(m) { return m == null ? '?' : rrFmtMin_(m); }
+
+/** Flatten the day's working records (PSA teams + LL sections) for validation. */
+function valCollect_(res, ll) {
+  var recs = [];
+  Object.keys(res.teams).forEach(function (t) {
+    res.teams[t].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recs.push(r); });
+  });
+  if (ll && ll.totals.staff > 0) {
+    Object.keys(ll.sections).forEach(function (s) {
+      ll.sections[s].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recs.push(r); });
+    });
+  }
+  return recs;
+}
+
+/** One person on 2+ flights with overlapping open→close (or STA→STD) windows. */
+function valFlightConflicts_(recs) {
+  var issues = [];
+  recs.forEach(function (rec) {
+    if (!rec.assignments || rec.assignments.length < 2) return;
+    var times = rec.assignments.map(function (a) {
+      return { flight: a.flight, start: valMin_(a.OP || a.STA), end: valMin_(a.CL || a.STD) };
+    }).filter(function (f) { return f.start != null && f.end != null; });
+    times.sort(function (a, b) { return a.start - b.start; });
+    for (var i = 0; i < times.length - 1; i++) {
+      if (times[i].end > times[i + 1].start) {
+        issues.push({
+          type: 'CONFLICT', team: rec.team, name: rec.name,
+          msg: '⚡ ' + rec.name + ' [' + rec.team + '] ไฟลท์ชนกัน: ' +
+               times[i].flight + ' (ปิด ' + valFmt_(times[i].end) + ') กับ ' +
+               times[i + 1].flight + ' (เปิด ' + valFmt_(times[i + 1].start) + ')',
+        });
+      }
+    }
+  });
+  return issues;
+}
+
+/** A flight ends after the shift end but the person has no OT recorded. */
+function valOtMissing_(recs) {
+  var issues = [];
+  recs.forEach(function (rec) {
+    if (!rec.assignments || !rec.assignments.length) return;
+    if (rec.ot > 0 || rec.bucket === 'ot_off') return;        // OT present → fine
+    var srng = rrRangeStr_(rec.shiftTime || rec.shift);
+    if (srng[1] == null) return;
+    var shiftEnd = srng[1];
+    for (var i = 0; i < rec.assignments.length; i++) {
+      var a = rec.assignments[i];
+      var endWork = Math.max(valMin_(a.STD) || 0, valMin_(a.CL) || 0);
+      if (endWork > 0 && endWork > shiftEnd) {
+        issues.push({
+          type: 'OT_MISSING', team: rec.team, name: rec.name,
+          msg: '⚠️ ' + rec.name + ' [' + rec.team + '] ไฟลท์ ' + a.flight +
+               ' (STD/CL ' + (a.STD || a.CL) + ') เกินกะ ' + valFmt_(shiftEnd) + ' แต่ไม่มี OT',
+        });
+        break;                                                // one issue per person
+      }
+    }
+  });
+  return issues;
+}
+
+/** Compute both checks for a day. */
+function valRun_(res, ll) {
+  var recs = valCollect_(res, ll);
+  return { conflicts: valFlightConflicts_(recs), otIssues: valOtMissing_(recs) };
+}
+
+/** Sheet tab: 🚨 Issues — flight conflicts + OT-missing rows. */
+function rbWriteIssues_(ss, res, ll, dateStr, tabName) {
+  tabName = tabName || '🚨 Issues';
+  var old = ss.getSheetByName(tabName);
+  if (old) ss.deleteSheet(old);
+  var sh = ss.insertSheet(tabName);
+  var v = valRun_(res, ll);
+  var all = v.conflicts.concat(v.otIssues);
+
+  sh.getRange(1, 1, 1, 4).merge()
+    .setValue('🚨 ตรวจความถูกต้องตาราง — ' + dateStr + '  •  ไฟลท์ชน ' + v.conflicts.length +
+              ' · OT ขาด ' + v.otIssues.length)
+    .setBackground('#b71c1c').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 28);
+  sh.getRange(2, 1, 1, 4).setValues([['ประเภท', 'ทีม', 'ชื่อ', 'รายละเอียด']])
+    .setBackground('#d32f2f').setFontColor('#fff').setFontWeight('bold').setHorizontalAlignment('center');
+
+  if (!all.length) {
+    sh.getRange(3, 1, 1, 4).merge().setValue('✅ ไม่พบไฟลท์ชนกัน และไม่พบ OT ที่ขาด')
+      .setBackground('#e8f5e9').setFontWeight('bold').setFontColor('#1b5e20').setHorizontalAlignment('center');
+  } else {
+    var rows = all.map(function (i) {
+      return [i.type === 'CONFLICT' ? '⚡ ไฟลท์ชน' : '⚠️ OT ขาด', i.team, i.name, i.msg];
+    });
+    sh.getRange(3, 1, rows.length, 4).setValues(rows).setFontSize(9);
+    for (var i = 0; i < all.length; i++) {
+      sh.getRange(3 + i, 1, 1, 4).setBackground(all[i].type === 'CONFLICT' ? '#ffebee' : '#fff8e1');
+    }
+  }
+  [100, 110, 160, 560].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(2);
+  return v;
+}
+
+/** Build the alert Chat message (null if nothing to report). */
+function rbBuildAlert_(v, dateStr) {
+  var all = v.conflicts.slice(0, 15).concat(v.otIssues.slice(0, 15));
+  if (!all.length) return null;
+  var lines = all.map(function (i) { return '• ' + i.msg; });
+  return { text: '🚨 *Roster Alert* — ' + dateStr + '\n(ไฟลท์ชน ' + v.conflicts.length +
+                 ' · OT ขาด ' + v.otIssues.length + ')\n\n' + lines.join('\n') };
+}
+
+/** Post conflicts/OT issues to the ALERT webhook (separate room). */
+function rbPostAlerts_(res, ll, dateStr) {
+  var webhook = rbResolveWebhook_(CONFIG_RB.CHAT_ALERT_PROP);
+  if (!webhook) { Logger.log('ℹ️ alert webhook (%s) ยังไม่ตั้ง → ข้าม', CONFIG_RB.CHAT_ALERT_PROP); return; }
+  var msg = rbBuildAlert_(valRun_(res, ll), dateStr);
+  if (!msg) { Logger.log('✅ ไม่มี issue → ไม่ส่ง alert'); return; }
+  UrlFetchApp.fetch(webhook, {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify(msg), muteHttpExceptions: true,
+  });
+  Logger.log('🚨 ส่ง alert แล้ว');
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// ===== RosterBot.gs =====
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * RosterBot.gs — web-dashboard report pipeline on top of the shared readers
+ * =============================================================================
+ * Turns the shared roster reader into the actual outputs:
+ *   • a Dashboard tab  — per-team headcount + OT + flight counts (+ grand total)
+ *   • a Timetable tab  — per-team, per-employee flights with shift / OT and each
+ *                        flight's task and open–close (OP/CL) or STA/STD times
+ *   • Flights & SLA / Support tabs (SLA.gs)
+ *   • a weekly OT (>36h) tab
+ *   • a Google Chat summary
+ *
+ * Requires the shared reader layer (RosterReader.gs / LLReader.gs /
+ * MasterReader.gs) and SLA.gs in the same Apps Script project.
+ *
+ * Entry points:
+ *   runDailyRosterReport()                 — today, used by the time triggers
+ *   runRosterForDate(y, m, d)              — a specific date
+ *   testRosterFromId(psaId, llId, y, m, d) — one file by id (manual smoke test)
+ *
+ * NOTE: this is the "Bot A" pipeline. The legacy detailed Chat + PDF report is
+ * "Bot B" (LegacyReport.gs) and reuses rbOpenTodayRoster_ / rbOpenAnyById_ /
+ * readRosterFromSpreadsheet / readLLForDate from here.
+ */
+
+var CONFIG_RB = {
+  ROOT_FOLDER_ID:   '1Uk-6w7U-cqQEXFIVEl6tRhKKRCaN1ojp',   // PSA year folder (drill month→day)
+  OUTPUT_FOLDER_ID: '',                                     // โฟลเดอร์เก็บรายงาน — เว้นว่าง = เซฟลง My Drive
+  LL_FILE_ID:       '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg', // ไฟล์ LL — เว้นว่าง = ข้าม LL
+  CHAT_WEBHOOK_PROP: 'GCHAT_WEBHOOK_REPORT',               // Script Property holding the webhook URL
+  CHAT_ALERT_PROP:  'GCHAT_WEBHOOK_ALERT',                 // 2nd Script Property: conflict / OT-missing alerts
+  SKIP_TIMETABLE_TEAMS: [],                                // teams to omit from the timetable tab
+};
+
+var MON_RB = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+// ─── ENTRY POINTS ───────────────────────────────────────────────────────────
+function runDailyRosterReport() {
+  try { rbRunForDate_(new Date()); }
+  catch (e) { Logger.log('❌ runDailyRosterReport: ' + e.message + '\n' + (e.stack || '')); }
+}
+
+function runRosterForDate(y, m, d) {
+  try { rbRunForDate_(new Date(y, m - 1, d)); }
+  catch (e) { Logger.log('❌ runRosterForDate: ' + e.message + '\n' + (e.stack || '')); }
+}
+
+/**
+ * รันครั้งเดียวเพื่อตั้ง trigger ให้รายงานออกอัตโนมัติทุกวัน 08:00 และ 14:00
+ * (เวลาอิงตาม Time zone ของโปรเจกต์ — ตั้งเป็น Asia/Bangkok ใน Project Settings)
+ * แต่ละรอบจะอ่านไฟล์ของวันนั้น + อัปเดตแท็บ + ส่งเข้า Google Chat
+ */
+function setupTriggers() {
+  // Remove our own daily trigger AND any stale triggers left by the old v3.1 bot
+  // (runMorning / runAfternoon / runManual) so they stop firing "function not found".
+  var STALE = ['runDailyRosterReport', 'runMorning', 'runAfternoon', 'runManual'];
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (STALE.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('runDailyRosterReport').timeBased().atHour(8).nearMinute(0).everyDays(1).create();
+  ScriptApp.newTrigger('runDailyRosterReport').timeBased().atHour(14).nearMinute(0).everyDays(1).create();
+  var w = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP) ? 'ตั้งแล้ว' : 'ยังไม่ตั้ง (ใส่ใน Script Properties)';
+  Logger.log('✅ ตั้ง trigger รันทุกวัน 08:00 และ 14:00 แล้ว (ลบ trigger เก่า runMorning/runAfternoon ทิ้งด้วย) · Google Chat webhook: ' + w);
+}
+
+/**
+ * ลบ trigger ทั้งหมดของโปรเจกต์ — ใช้ตอนย้ายจากบอตเก่ามาบอตใหม่
+ * (เผื่อมี trigger ค้างชื่ออื่น) แล้วค่อยรัน setupTriggers()/setupLegacyTriggers() ใหม่
+ */
+function removeAllTriggers() {
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); n++; });
+  Logger.log('🗑️ ลบ trigger ทั้งหมด %s ตัว — รัน setupTriggers() และ/หรือ setupLegacyTriggers() เพื่อตั้งใหม่', n);
+}
+
+/**
+ * รันครั้งเดียวเพื่อบันทึก Google Chat webhook ลง Script Properties
+ * (อย่าใส่ URL ลงในโค้ดที่ commit ขึ้น GitHub — เป็นความลับ)
+ * วิธีใช้: วาง URL ในตัวแปร url ด้านล่าง → Run setupChatWebhook → แล้วลบ URL ออก
+ * หรือไปที่ Project Settings → Script Properties → เพิ่ม GCHAT_WEBHOOK_REPORT เอง
+ */
+function setupChatWebhook() {
+  var url = 'PASTE_GOOGLE_CHAT_WEBHOOK_URL_HERE';
+  if (url.indexOf('http') !== 0) { Logger.log('⚠️ วาง URL webhook ในฟังก์ชัน setupChatWebhook ก่อน'); return; }
+  PropertiesService.getScriptProperties().setProperty(CONFIG_RB.CHAT_WEBHOOK_PROP, url);
+  Logger.log('✅ บันทึก webhook แล้ว → รายงานรายวันจะส่งเข้า Google Chat');
+}
+
+/**
+ * Open any spreadsheet by id whether it is a native Google Sheet OR an uploaded
+ * .xlsx (which SpreadsheetApp.openById cannot read). Returns { ss, tempId }.
+ * Requires the Drive API advanced service for the .xlsx case.
+ */
+function rbOpenAnyById_(id) {
+  var file = DriveApp.getFileById(id);
+  var mime = file.getMimeType();
+  if (mime === MimeType.GOOGLE_SHEETS) return { ss: SpreadsheetApp.openById(id), tempId: null };
+  if (mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      || /\.xlsx$/i.test(file.getName())) {
+    var tmp = Drive.Files.copy({ title: '_TEMP_' + Date.now(), mimeType: MimeType.GOOGLE_SHEETS }, id, { convert: true });
+    return { ss: SpreadsheetApp.openById(tmp.id), tempId: tmp.id };
+  }
+  throw new Error('ไฟล์นี้ไม่ใช่ Spreadsheet (mime=' + mime + ') — ต้องชี้ไปที่ไฟล์ assignment PSA');
+}
+
+/**
+ * Simplest manual test: read ONE PSA roster file by ID, write the reports.
+ * Works on a native Google Sheet OR an .xlsx assignment file.
+ * Pass an LL file id + date to include the LL department, e.g.
+ *   testRosterFromId('<psaId>', '<llId>', 2026, 6, 6);
+ */
+function testRosterFromId(ssId, llId, y, m, d) {
+  ssId = ssId || 'PUT_A_ROSTER_SPREADSHEET_ID_HERE';
+  var opened = rbOpenAnyById_(ssId);
+  var roster = opened.ss;
+  Logger.log('📄 ไฟล์: %s | ชีต: %s', roster.getName(),
+             roster.getSheets().map(function (s) { return s.getName(); }).join(', '));
+  var res = readRosterFromSpreadsheet(roster);
+  Logger.log('➡️ เจอ %s ทีม, รวม %s คน (working %s)',
+             Object.keys(res.teams).length, res.totals.staff, res.totals.working);
+  if (res.totals.staff === 0) {
+    Logger.log('⚠️ อ่านไม่เจอพนักงาน — ตรวจว่าไฟล์นี้เป็นไฟล์ assignment PSA (มีแท็บ EK/SQ/QR/...) ' +
+               'และมีหัวตาราง ID/NAME/SHIFT ใช่ไหม');
+  }
+  var ll = null;
+  if (llId) {
+    var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
+    try { ll = readLLForDate(llId, date); } catch (e) { Logger.log('⚠️ LL: ' + e.message); }
+  }
+  var master = null;
+  try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e) { Logger.log('⚠️ Master: ' + e.message); }
+  var out = SpreadsheetApp.create('Roster Report — ' + roster.getName());
+  rbWriteDashboard_(out, res, roster.getName(), ll, master);
+  rbWriteTimetable_(out, res, roster.getName(), ll);
+  rbWriteFlightSLA_(out, res, roster.getName(), ll);
+  rbWriteSupport_(out, res, roster.getName(), ll);
+  rbWriteIssues_(out, res, ll, roster.getName());
+  var cleanup = out.getSheetByName('Sheet1') || out.getSheetByName('ชีต1');
+  if (cleanup && out.getSheets().length > 1) out.deleteSheet(cleanup);
+  if (opened.tempId) { try { DriveApp.getFileById(opened.tempId).setTrashed(true); } catch (e) {} }
+  Logger.log('✅ Report written: %s', out.getUrl());
+  return out.getUrl();
+}
+
+// ─── MAIN PIPELINE ──────────────────────────────────────────────────────────
+function rbRunForDate_(date) {
+  var roster = rbOpenTodayRoster_(date);
+  var res = readRosterFromSpreadsheet(roster.ss);
+
+  var ll = null;
+  if (CONFIG_RB.LL_FILE_ID) {
+    try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); }
+    catch (e) { Logger.log('⚠️ LL: ' + e.message); }
+  }
+
+  var master = null;
+  if (MASTER_FILE_ID_RB) {
+    try { master = readMasterHeadcount(MASTER_FILE_ID_RB); }
+    catch (e) { Logger.log('⚠️ Master: ' + e.message); }
+  }
+
+  var be = date.getFullYear() + 543;
+  var mon = MON_RB[date.getMonth()];
+  var dd = ('0' + date.getDate()).slice(-2);
+  var dateStr = date.getDate() + ' ' + mon + ' ' + be;
+
+  // one monthly file, tabs PER DAY → keeps history
+  var out = rbGetMonthlyOutput_(mon, be);
+  rbWriteDashboard_(out, res, dateStr, ll, master, '📊 ' + dd + ' ' + mon);
+  rbWriteTimetable_(out, res, dateStr, ll, '🕓 ' + dd + ' ' + mon);
+  rbWriteFlightSLA_(out, res, dateStr, ll, '✈️ ' + dd + ' ' + mon);
+  rbWriteSupport_(out, res, dateStr, ll, '🆘 ' + dd + ' ' + mon);
+  // schedule validation (flight conflicts / OT missing) — non-fatal
+  try { rbWriteIssues_(out, res, ll, dateStr, '🚨 ' + dd + ' ' + mon); }
+  catch (e) { Logger.log('⚠️ Issues: ' + e.message); }
+  // weekly OT (>36h) — reads the week's files; non-fatal if it can't finish
+  try {
+    var wr = rbWeekRange_(date);
+    rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.startDay + '-' + wr.endDay + ' ' + mon);
+  } catch (e) { Logger.log('⚠️ Weekly OT: ' + e.message); }
+  ['Sheet1', 'ชีต1', 'Sheet'].forEach(function (n) {
+    var s = out.getSheetByName(n); if (s && out.getSheets().length > 1) out.deleteSheet(s);
+  });
+  if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
+
+  rbPostChat_(res, dateStr, out.getUrl(), ll, master);
+  try { rbPostAlerts_(res, ll, dateStr); } catch (e) { Logger.log('⚠️ Alerts: ' + e.message); }
+  Logger.log('✅ Done: %s', out.getUrl());
+}
+
+// ─── DASHBOARD TAB (KPI cards — JUN_2569 style) ─────────────────────────────
+var KPI_BG_ = ['#e8f0fe', '#e6f4ea', '#f5f5f5', '#fff8e1', '#fff3e0', '#fce4ec'];
+var KPI_FC_ = ['#1a237e', '#1b5e20', '#424242', '#e65100', '#bf360c', '#880e4f'];
+
+/** Write a row of KPI cards: label row + big value row, one card per column. */
+function rbCards_(sh, top, labels, values) {
+  for (var i = 0; i < labels.length; i++) {
+    sh.getRange(top, i + 1).setValue(labels[i]).setBackground(KPI_BG_[i % 6]).setFontColor(KPI_FC_[i % 6])
+      .setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle');
+    sh.getRange(top + 1, i + 1).setValue(values[i]).setBackground(KPI_BG_[i % 6]).setFontColor(KPI_FC_[i % 6])
+      .setFontWeight('bold').setFontSize(20).setHorizontalAlignment('center').setVerticalAlignment('middle');
+  }
+  sh.setRowHeight(top, 22); sh.setRowHeight(top + 1, 40);
+}
+
+function rbOtCell_(people, hrs) { return people > 0 ? (people + ' (' + hrs + 'h)') : '-'; }
+
+/** Manpower-by-X table: X | Total | Working | OT-Off | OT ก่อนกะ | OT หลังกะ | %Working */
+function rbManpowerTable_(sh, top, title, rowsData, headColor) {
+  var W = 7;
+  sh.getRange(top, 1, 1, W).merge().setValue(title)
+    .setBackground(headColor).setFontColor('#fff').setFontWeight('bold').setFontSize(12);
+  sh.setRowHeight(top, 24);
+  var head = ['ทีม/ส่วน', 'Total', 'Working', 'OT-Off', 'OT ก่อนกะ', 'OT หลังกะ', '%Working'];
+  sh.getRange(top + 1, 1, 1, W).setValues([head]).setBackground('#2e75b6').setFontColor('#fff')
+    .setFontWeight('bold').setHorizontalAlignment('center');
+  var body = rowsData.map(function (d) {
+    var b = d.agg, work = b.working + b.ot_off;
+    var pct = b.staff > 0 ? Math.round(work / b.staff * 100) + '%' : '-';
+    return [d.label, b.staff, work, rbOtCell_(b.ot_off, b.otOffHrs), rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs), pct];
+  });
+  if (body.length) sh.getRange(top + 2, 1, body.length, W).setValues(body);
+  return top + 2 + body.length;
+}
+
+function rbWriteDashboard_(ss, res, dateStr, ll, master, tabName) {
+  tabName = tabName || '📊 Dashboard';
+  var oldD = ss.getSheetByName(tabName);
+  if (oldD) ss.deleteSheet(oldD);                            // recreate fresh (clears stale freeze/merges)
+  var sh = ss.insertSheet(tabName, 0);
+
+  var P = res.totals;
+  var L = ll && ll.totals.staff > 0 ? ll.totals : null;
+  var combStaff = P.staff + (L ? L.staff : 0);
+  var combWork  = (P.working + P.ot_off) + (L ? L.working + L.ot_off : 0);
+  var combOff   = P.off + (L ? L.off : 0);
+  var combOtOff = P.ot_off + (L ? L.ot_off : 0);
+  var combOtPpl = P.otPeople + (L ? L.otPeople : 0);
+  var combOtHrs = Math.round((P.otHours + (L ? L.otHours : 0)) * 10) / 10;
+
+  // Title
+  sh.getRange(1, 1, 1, 6).merge().setValue('📊 Daily Manpower Dashboard  —  ' + dateStr)
+    .setBackground('#002060').setFontColor('#fff').setFontWeight('bold').setFontSize(14)
+    .setHorizontalAlignment('center');
+  sh.setRowHeight(1, 34);
+
+  // KPI cards (PSA + LL combined) — exact JUN_2569 fields
+  rbCards_(sh, 3,
+    ['👥 Total Staff', '🟢 Working', '⬛ OFF', '🟡 OT OFF (XX)', '⏰ OT คน', '⏱️ OT ชั่วโมง'],
+    [combStaff, combWork, combOff, combOtOff, combOtPpl, combOtHrs]);
+
+  // Overall OT split (ก่อนกะ / หลังกะ / OT OFF) — combined PSA + LL, คน + ชม.
+  var otPre = P.otPre + (L ? L.otPre : 0), otPreHrs = Math.round((P.otPreHrs + (L ? L.otPreHrs : 0)) * 10) / 10;
+  var otPost = P.otPost + (L ? L.otPost : 0), otPostHrs = Math.round((P.otPostHrs + (L ? L.otPostHrs : 0)) * 10) / 10;
+  var otOff = P.ot_off + (L ? L.ot_off : 0), otOffHrs = Math.round((P.otOffHrs + (L ? L.otOffHrs : 0)) * 10) / 10;
+  sh.getRange(5, 1, 1, 6).merge()
+    .setValue('⏱️ OT ก่อนกะ: ' + otPre + ' คน (' + otPreHrs + 'h)  |  OT หลังกะ: ' + otPost + ' คน (' + otPostHrs +
+              'h)  |  OT OFF: ' + otOff + ' คน (' + otOffHrs + 'h)')
+    .setBackground('#241c33').setFontColor('#f5c542').setFontWeight('bold').setFontSize(11)
+    .setHorizontalAlignment('center');
+  sh.setRowHeight(5, 22);
+
+  // Active establishment headcount (both departments) from MASTER file
+  var row = 7;
+  if (master) {
+    var both = master.PSA.total + master.LL.total;
+    sh.getRange(row, 1, 1, 6).merge()
+      .setValue('👥 จำนวนพนักงานทั้งหมด (Active) — PSA ' + master.PSA.total +
+                '  +  LL ' + master.LL.total + '  =  ' + both + ' คน')
+      .setBackground('#37474f').setFontColor('#fff').setFontWeight('bold').setFontSize(11)
+      .setHorizontalAlignment('center');
+    sh.setRowHeight(row, 22);
+    row += 2;
+  } else {
+    row += 1;
+  }
+
+  // 📌 Manpower by Team (PSA)
+  var teamRows = Object.keys(res.teams).sort(function (a, b) {
+    return (res.teams[b].working + res.teams[b].ot_off) - (res.teams[a].working + res.teams[a].ot_off);
+  }).map(function (t) { return { label: t, agg: res.teams[t] }; });
+  teamRows.push({ label: '🔵 PSA TOTAL', agg: P });
+  row = rbManpowerTable_(sh, row, '📌 Manpower by Team (PSA)', teamRows, '#1f4e79') + 1;
+
+  // 📌 Manpower by Section (LL)
+  if (L) {
+    var secRows = Object.keys(ll.sections).map(function (s) { return { label: s, agg: ll.sections[s] }; });
+    secRows.push({ label: '🟡 LL TOTAL', agg: L });
+    row = rbManpowerTable_(sh, row, '📌 Manpower by Section (LL)', secRows, '#7f6000') + 1;
+  }
+
+  // 📌 By position group (PSA then LL) — full detail, with OT ก่อน/หลังกะ
+  var ph = ['Position', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ก่อนกะ', 'OT หลังกะ'];
+  function posBlock(title, positions, orderList, bg) {
+    sh.getRange(row, 1, 1, ph.length).merge().setValue(title)
+      .setBackground(bg).setFontColor('#fff').setFontWeight('bold'); row++;
+    sh.getRange(row, 1, 1, ph.length).setValues([ph]).setBackground('#888').setFontColor('#fff').setFontWeight('bold'); row++;
+    var body = [];
+    orderList.forEach(function (p) {
+      var b = positions[p]; if (!b) return;
+      body.push([p, b.staff, b.working + b.ot_off, rbOtCell_(b.ot_off, b.otOffHrs), b.off, b.sick, b.leave,
+                 rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs)]);
+    });
+    if (body.length) { sh.getRange(row, 1, body.length, ph.length).setValues(body); row += body.length; }
+    row += 1;
+  }
+  posBlock('🔵 PSA by position', res.positions,
+           ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign', 'DIR', 'MGR', 'Assist'], '#1f4e79');
+  if (L) posBlock('🟡 LL by position', ll.positions, ['PSS', 'SNR', 'PSA', 'Porter', 'Admin', 'Trainee'], '#7f6000');
+
+  // Combined PSA + LL working KPI footer
+  if (L) {
+    sh.getRange(row, 1, 1, 6).merge()
+      .setValue('🏢 รวม PSA + LL  —  มาทำงาน ' + combWork + ' / ' + combStaff +
+                ' คน  •  OFF ' + combOff + '  •  OT ' + combOtPpl + ' คน (' + combOtHrs + 'h)')
+      .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(11)
+      .setHorizontalAlignment('center');
+    sh.setRowHeight(row, 24);
+  }
+
+  [110, 70, 75, 65, 70, 80].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  for (var c = 7; c <= 9; c++) sh.setColumnWidth(c, 60);
+  sh.setFrozenRows(2);
+}
+
+// ─── TIMETABLE TAB (wide flight-form layout, 3 OT columns) ──────────────────
+function rbShiftCell_(r) {
+  var code = r.shift || '';
+  return (r.shiftTime && r.shiftTime !== code) ? (code + ' (' + r.shiftTime + ')') : code;
+}
+/** [OT ก่อนกะ, OT หลังกะ, OT OFF] cell strings for one record. */
+function rbOtCols_(r) {
+  var cell = (r.otTime ? r.otTime + ' ' : '') + (r.ot ? '(' + r.ot + 'h)' : '');
+  if (r.bucket === 'ot_off') return ['', '', r.ot ? cell : '✔'];
+  if (r.ot > 0) return r.otType === 'PRE' ? [cell, '', ''] : ['', cell, ''];
+  return ['', '', ''];
+}
+
+function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
+  tabName = tabName || '🕓 Timetable';
+  var old = ss.getSheetByName(tabName);
+  if (old) ss.deleteSheet(old);                              // recreate fresh (clears stale freeze/merges)
+  var sh = ss.insertSheet(tabName, 1);
+  var MAXFL = 4, F = 6, B = 9, TOTAL = B + MAXFL * F + 1;   // 34 columns
+
+  // flatten working records: PSA teams then LL sections
+  var recsAll = [];
+  Object.keys(res.teams).forEach(function (team) {
+    if (CONFIG_RB.SKIP_TIMETABLE_TEAMS.indexOf(team) >= 0) return;
+    res.teams[team].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recsAll.push(r); });
+  });
+  if (ll && ll.totals.staff > 0) {
+    Object.keys(ll.sections).forEach(function (s) {
+      ll.sections[s].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recsAll.push(r); });
+    });
+  }
+
+  // Title
+  sh.getRange(1, 1, 1, TOTAL).merge().setValue('🕓 Timetable / ตารางงานรายคน — ' + dateStr)
+    .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 28);
+
+  // Group headers (rows 2-3)
+  var baseHdr = ['Team', 'รหัสพนักงาน', 'ตำแหน่ง', 'ชื่อ', 'SHIFT เวลากะ', 'RE', 'OT ก่อนกะ', 'OT หลังกะ', 'OT OFF'];
+  baseHdr.forEach(function (h, i) {
+    sh.getRange(2, i + 1, 2, 1).merge().setValue(h).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
+      .setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
+  });
+  var flClr = ['#0d3d6b', '#145a32', '#6e2f8e', '#784212'];
+  for (var fi = 0; fi < MAXFL; fi++) {
+    var base = B + fi * F + 1;
+    sh.getRange(2, base, 1, F).merge().setValue('ไฟลท์ที่ ' + (fi + 1)).setBackground(flClr[fi]).setFontColor('#fff')
+      .setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center');
+    ['ชื่อไฟลท์', 'หน้าที่/Task', 'STA', 'OP', 'CL', 'STD'].forEach(function (h, k) {
+      sh.getRange(3, base + k).setValue(h).setBackground(flClr[fi]).setFontColor('#fff').setFontWeight('bold')
+        .setFontSize(9).setHorizontalAlignment('center').setWrap(true);
+    });
+  }
+  sh.getRange(2, TOTAL, 2, 1).merge().setValue('ชั่วโมงรวม').setBackground('#1f4e79').setFontColor('#fff')
+    .setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
+  sh.setRowHeight(2, 20); sh.setRowHeight(3, 30);
+
+  // Data rows
+  var data = recsAll.map(function (r) {
+    var ot = rbOtCols_(r);
+    var row = [r.team || '', r.id || '', r.pos || '', r.name || '', rbShiftCell_(r), r.re || '', ot[0], ot[1], ot[2]];
+    for (var fi = 0; fi < MAXFL; fi++) {
+      var a = r.assignments && r.assignments[fi];
+      row.push(a ? a.flight : '', a ? (a.task || '') : '', a ? (a.STA || '') : '', a ? (a.OP || '') : '', a ? (a.CL || '') : '', a ? (a.STD || '') : '');
+    }
+    var total = (r.shiftHrs || 0) + (r.ot || 0);
+    row.push(total ? Math.round(total * 10) / 10 : '');
+    return row;
+  });
+  if (data.length) {
+    sh.getRange(4, 1, data.length, TOTAL).setValues(data).setFontSize(9).setVerticalAlignment('middle');
+    for (var i = 0; i < data.length; i++) {
+      if (i % 2) sh.getRange(4 + i, 1, 1, TOTAL).setBackground('#f3f7fc');
+      var ro = recsAll[i];
+      if (ro.bucket === 'ot_off') sh.getRange(4 + i, 9).setBackground('#fff3cd');  // highlight OT OFF
+    }
+    sh.getRange(4, 1, data.length, 4).setFontWeight('bold');
+  }
+
+  // Column widths
+  [90, 90, 70, 140, 120, 50, 95, 95, 80].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  for (var f2 = 0; f2 < MAXFL; f2++) {
+    var b2 = B + f2 * F + 1;
+    [120, 130, 52, 52, 52, 52].forEach(function (w, k) { sh.setColumnWidth(b2 + k, w); });
+  }
+  sh.setColumnWidth(TOTAL, 70);
+  sh.setFrozenRows(3);
+}
+
+// ─── WEEKLY OT (>36h/week check) ────────────────────────────────────────────
+var OT_WEEK_LIMIT = 36;
+
+/** 7-day week block within the month, starting day 1 (1-7, 8-14, …). */
+function rbWeekRange_(date) {
+  var d = date.getDate();
+  var startDay = Math.floor((d - 1) / 7) * 7 + 1;
+  var daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  return { startDay: startDay, endDay: Math.min(startDay + 6, daysInMonth) };
+}
+
+/** Accumulate OT hours per employee across the week (week-to-date up to `date`). */
+function rbWeeklyOT_(date) {
+  var wr = rbWeekRange_(date);
+  var upto = Math.min(date.getDate(), wr.endDay);
+  var people = {}, daysRead = [];
+  for (var day = wr.startDay; day <= upto; day++) {
+    var dt = new Date(date.getFullYear(), date.getMonth(), day);
+    var roster;
+    try { roster = rbOpenTodayRoster_(dt); } catch (e) { continue; }
+    var res;
+    try { res = readRosterFromSpreadsheet(roster.ss); } catch (e2) { res = null; }
+    if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e3) {} }
+    if (!res) continue;
+    daysRead.push(day);
+    var ll = null;
+    if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, dt); } catch (e4) {} }
+
+    function tally(team, r) {
+      if ((r.bucket !== 'working' && r.bucket !== 'ot_off') || !(r.ot > 0)) return;
+      var key = r.id ? ('#' + r.id) : (String(r.name).toUpperCase() + '|' + team);
+      if (!people[key]) people[key] = { name: r.name, team: team, pos: r.pos || '', daily: {}, total: 0 };
+      people[key].daily[day] = Math.round(((people[key].daily[day] || 0) + r.ot) * 10) / 10;
+      people[key].total += r.ot;
+    }
+    Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { tally(t, r); }); });
+    if (ll && ll.totals.staff > 0) {
+      Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { tally('LL·' + s, r); }); });
+    }
+  }
+  var list = Object.keys(people).map(function (k) { people[k].total = Math.round(people[k].total * 10) / 10; return people[k]; })
+    .sort(function (a, b) { return b.total - a.total; });
+  return { startDay: wr.startDay, endDay: wr.endDay, daysRead: daysRead, people: list,
+           over: list.filter(function (p) { return p.total > OT_WEEK_LIMIT; }) };
+}
+
+/** Sheet tab: ⏱️ OT รายสัปดาห์ — per-person weekly OT + >36h flag. */
+function rbWriteWeeklyOT_(ss, date, mon, tabName) {
+  tabName = tabName || '⏱️ OT สัปดาห์';
+  var old = ss.getSheetByName(tabName);
+  if (old) ss.deleteSheet(old);
+  var sh = ss.insertSheet(tabName);
+  var wk = rbWeeklyOT_(date);
+  var dayCols = [];
+  for (var d = wk.startDay; d <= wk.endDay; d++) dayCols.push(d);
+  var W = 3 + dayCols.length + 2;
+
+  sh.getRange(1, 1, 1, W).merge()
+    .setValue('⏱️ OT รายสัปดาห์ (' + wk.startDay + '-' + wk.endDay + ' ' + mon + ')  •  เกิน ' + OT_WEEK_LIMIT +
+              ' ชม./สัปดาห์: ' + wk.over.length + ' คน  •  อ่าน ' + wk.daysRead.length + ' วัน')
+    .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 26);
+
+  var head = ['ชื่อ', 'ทีม', 'ตำแหน่ง'].concat(dayCols.map(function (d) { return String(d); })).concat(['OT รวม/สัปดาห์', 'สถานะ']);
+  sh.getRange(2, 1, 1, W).setValues([head]).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
+    .setHorizontalAlignment('center');
+
+  var body = wk.people.map(function (p) {
+    var row = [p.name, p.team, p.pos];
+    dayCols.forEach(function (d) { row.push(p.daily[d] || ''); });
+    var status = p.total > OT_WEEK_LIMIT ? '🔴 เกิน ' + OT_WEEK_LIMIT : (p.total >= 30 ? '🟡 ใกล้' : '');
+    row.push(p.total, status);
+    return row;
+  });
+  if (body.length) {
+    sh.getRange(3, 1, body.length, W).setValues(body).setFontSize(9);
+    for (var i = 0; i < wk.people.length; i++) {
+      if (wk.people[i].total > OT_WEEK_LIMIT) sh.getRange(3 + i, 1, 1, W).setBackground('#fdecec');
+      else if (wk.people[i].total >= 30) sh.getRange(3 + i, 1, 1, W).setBackground('#fff8e1');
+    }
+  } else {
+    sh.getRange(3, 1, 1, W).merge().setValue('ยังไม่มีข้อมูล OT ในสัปดาห์นี้').setHorizontalAlignment('center');
+  }
+  [130, 90, 60].concat(dayCols.map(function () { return 40; })).concat([95, 90]).forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(2);
+}
+
+/** Standalone: build the weekly-OT tab for a date into the monthly file. */
+function runWeeklyOTReport(y, m, d) {
+  var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
+  var mon = MON_RB[date.getMonth()], be = date.getFullYear() + 543;
+  var out = rbGetMonthlyOutput_(mon, be);
+  var wr = rbWeekRange_(date);
+  rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.startDay + '-' + wr.endDay + ' ' + mon);
+  Logger.log('✅ Weekly OT: %s', out.getUrl());
+  return out.getUrl();
+}
+
+// ─── GOOGLE CHAT ────────────────────────────────────────────────────────────
+/**
+ * Resolve a webhook: if the config value is already a URL ("http...") use it
+ * directly, otherwise read it from the Script Property of that name. This lets
+ * CONFIG_RB.CHAT_*_PROP hold EITHER a property key (recommended — keeps the
+ * secret out of source) OR a raw URL.
+ */
+function rbResolveWebhook_(propOrUrl) {
+  var v = String(propOrUrl || '');
+  if (v.indexOf('http') === 0) return v;
+  return PropertiesService.getScriptProperties().getProperty(v) || '';
+}
+
+function rbPostChat_(res, dateStr, url, ll, master) {
+  var webhook = rbResolveWebhook_(CONFIG_RB.CHAT_WEBHOOK_PROP);
+  if (!webhook) { Logger.log('⚠️ no webhook set in property %s', CONFIG_RB.CHAT_WEBHOOK_PROP); return; }
+  var T = res.totals;
+  var now = new Date();
+  var hh = parseInt(Utilities.formatDate(now, Session.getScriptTimeZone() || 'Asia/Bangkok', 'HH'), 10);
+  var clock = Utilities.formatDate(now, Session.getScriptTimeZone() || 'Asia/Bangkok', 'HH:mm');
+  var round = hh < 12 ? 'รอบเช้า ☀️' : 'รอบบ่าย 🌤️';
+  var lines = [
+    '📊 *Daily Manpower* — ' + dateStr + '  ·  ' + round + ' (' + clock + ')',
+  ];
+  if (master) {
+    lines.push('👥 *พนักงานทั้งหมด (Active):* PSA ' + master.PSA.total + ' + LL ' + master.LL.total +
+               ' = *' + (master.PSA.total + master.LL.total) + '* คน');
+  }
+  lines.push('🔵 *PSA* — 👥 *' + T.staff + '*  🟢 *' + (T.working + T.ot_off) + '*  ⬛ *' + T.off +
+      '*  🤒 *' + T.sick + '*  🌴 *' + T.leave + '*  ⏰ *' + T.otPeople + '* (' + T.otHours + 'h)  ✈️ *' + T.flights + '*');
+  if (ll && ll.totals.staff > 0) {
+    var L = ll.totals;
+    lines.push('🟡 *LL* — 👥 *' + L.staff + '*  🟢 *' + (L.working + L.ot_off) + '*  ⬛ *' + L.off +
+      '*  🤒 *' + L.sick + '*  🌴 *' + L.leave + '*  ⏰ *' + L.otPeople + '* (' + L.otHours + 'h)');
+    lines.push('🏢 *รวม PSA+LL working: *' + (T.working + T.ot_off + L.working + L.ot_off) + '* / ' + (T.staff + L.staff) + ' คน*');
+  }
+  var lt = (ll && ll.totals.staff) ? ll.totals : { otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, ot_off: 0, otOffHrs: 0 };
+  var oPre = T.otPre + lt.otPre, oPreH = Math.round((T.otPreHrs + lt.otPreHrs) * 10) / 10;
+  var oPost = T.otPost + lt.otPost, oPostH = Math.round((T.otPostHrs + lt.otPostHrs) * 10) / 10;
+  var oOff = T.ot_off + lt.ot_off, oOffH = Math.round((T.otOffHrs + lt.otOffHrs) * 10) / 10;
+  lines.push('⏱️ *OT ก่อนกะ:* ' + oPre + ' คน (' + oPreH + 'h)  |  *OT หลังกะ:* ' + oPost + ' คน (' + oPostH +
+             'h)  |  *OT OFF:* ' + oOff + ' คน (' + oOffH + 'h)');
+  lines.push('', '*Top teams (working):*');
+  Object.keys(res.teams).sort(function (a, b) { return res.teams[b].working - res.teams[a].working; })
+    .slice(0, 8).forEach(function (t) {
+      var b = res.teams[t];
+      lines.push('  • ' + t + ': ' + (b.working + b.ot_off) + '/' + b.staff + '  OT ' + b.otHours + 'h  ✈️' + b.flights);
+    });
+  if (url) lines.push('', '🔗 ' + url);
+  UrlFetchApp.fetch(webhook, {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify({ text: lines.join('\n') }), muteHttpExceptions: true,
+  });
+}
+
+// ─── DRIVE NAVIGATION (find today's roster, convert xlsx if needed) ─────────
+function rbOpenTodayRoster_(date) {
+  var dd = ('0' + date.getDate()).slice(-2);
+  var mon = MON_RB[date.getMonth()];
+  var mm = ('0' + (date.getMonth() + 1)).slice(-2);
+  var yr2 = String(date.getFullYear()).slice(2);
+
+  var year = DriveApp.getFolderById(CONFIG_RB.ROOT_FOLDER_ID);
+  var monthFolder = rbFindMonthFolder_(year, mm, mon, yr2, date.getFullYear()) || year;
+  var file = rbFindDayFile_(monthFolder, dd, mon, yr2);
+  if (!file) throw new Error('ไม่พบไฟล์ roster ของวันที่ ' + dd + ' ' + mon + ' ใน ' + monthFolder.getName());
+
+  if (file.getMimeType() === MimeType.GOOGLE_SHEETS) {
+    return { ss: SpreadsheetApp.openById(file.getId()), tempId: null, fileName: file.getName() };
+  }
+  var tmp = Drive.Files.copy({ title: '_TEMP_' + Date.now(), mimeType: MimeType.GOOGLE_SHEETS },
+                             file.getId(), { convert: true });
+  return { ss: SpreadsheetApp.openById(tmp.id), tempId: tmp.id, fileName: file.getName() };
+}
+
+function rbFindMonthFolder_(parent, mm, mon, yr2, year) {
+  var pats = [
+    new RegExp('^' + mm + '\\.?\\s*' + mon + yr2 + '$', 'i'),
+    new RegExp('^' + mon + '\\s*' + yr2 + '$', 'i'),
+    new RegExp('^' + mon + '\\s*' + year + '$', 'i'),
+    new RegExp(mon, 'i'),
+  ];
+  var it = parent.getFolders();
+  while (it.hasNext()) {
+    var f = it.next(), nm = f.getName();
+    for (var p = 0; p < pats.length; p++) if (pats[p].test(nm)) return f;
+  }
+  return null;
+}
+
+function rbFindDayFile_(folder, dd, mon, yr2) {
+  var d = parseInt(dd, 10);
+  var pats = [
+    new RegExp('^' + dd + '\\s*' + mon + yr2 + '(\\.|$| )', 'i'),
+    new RegExp('^' + dd + '\\s*' + mon + '(\\.|$| )', 'i'),
+    new RegExp('^' + d + '\\s*' + mon + '(\\.|$| )', 'i'),
+    new RegExp('^' + dd + '\\s*' + mon, 'i'),
+    new RegExp('^' + d + '\\s*' + mon, 'i'),
+  ];
+  var best = null;
+  ['application/vnd.google-apps.spreadsheet',
+   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'].forEach(function (mime) {
+    var it = folder.getFilesByType(mime);
+    while (it.hasNext()) {
+      var f = it.next(), nm = f.getName();
+      for (var p = 0; p < pats.length; p++) {
+        if (pats[p].test(nm) && (!best || p < best.p)) best = { f: f, p: p };
+      }
+    }
+  });
+  return best ? best.f : null;
+}
+
+function rbGetMonthlyOutput_(mon, be) {
+  var name = 'Roster Report ' + mon + ' ' + be;
+  var folder = null;
+  if (CONFIG_RB.OUTPUT_FOLDER_ID) {
+    try { folder = DriveApp.getFolderById(CONFIG_RB.OUTPUT_FOLDER_ID); }
+    catch (e) { Logger.log('⚠️ OUTPUT_FOLDER_ID เข้าไม่ได้ (' + e.message + ') → สร้างไฟล์ใน My Drive แทน'); }
+  }
+  var it = folder ? folder.getFilesByName(name) : DriveApp.getFilesByName(name);
+  if (it.hasNext()) return SpreadsheetApp.openById(it.next().getId());
+  var ss = SpreadsheetApp.create(name);
+  if (folder) {
+    try {
+      var file = DriveApp.getFileById(ss.getId());
+      folder.addFile(file);
+      DriveApp.getRootFolder().removeFile(file);
+    } catch (e2) { Logger.log('⚠️ ย้ายไฟล์เข้าโฟลเดอร์ไม่ได้: ' + e2.message); }
+  }
+  return ss;
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// ===== WebDashboard.gs =====
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * WebDashboard.gs — AOTGA Daily Manpower Dashboard web app (doGet).
+ * =============================================================================
+ * Visual design adopted from the AOTGA dashboard design system (corporate CI,
+ * Kanit, appbar / week nav / KPI hero / panels / tables). Server-rendered so it
+ * runs as an Apps Script web app. Deploy → Web app → open the /exec URL.
+ * Requires RosterReader.gs / LLReader.gs / MasterReader.gs / RosterBot.gs / SLA.gs.
+ */
+
+var AOTGA_LOGO_URL = '';
+var CI = { royal:'#1D428A', bosch:'#236192', sky:'#4EC3E0', teal:'#3FBCBE', yellow:'#FEC909', red:'#D92526', grey:'#7C878F', good:'#1BA37A', sub:'#5a6b86' };
+var MONW = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+var DOWW = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+
+function doGet(e) {
+  var p = (e && e.parameter) || {};
+  if (p.ping) {  // deployment self-test: /exec?ping=1
+    return HtmlService.createHtmlOutput('<body style="font-family:sans-serif;padding:30px">✅ Web app OK · ' + new Date() + '</body>');
+  }
+  var date = new Date();
+  if (p.date && /^\d{4}-\d{2}-\d{2}$/.test(p.date)) { var a = p.date.split('-'); date = new Date(+a[0], +a[1]-1, +a[2]); }
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  var iso = Utilities.formatDate(date, tz, 'yyyy-MM-dd');
+  var base = ''; try { base = ScriptApp.getService().getUrl() || ''; } catch (eb) {}
+  var html;
+  try {
+    var d = rbLoadResLL_(date);
+    var master = null;
+    if (MASTER_FILE_ID_RB) { try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e4) {} }
+    html = rbBuildDashboardHtml_(d.res, d.ll, master, date, iso, base, tz);
+  } catch (err) {
+    html = '<!doctype html><html><head><meta charset="utf-8"><style>' + rbDesignCss_() + '</style></head>' +
+      '<body><div class="wrap">' + rbWeekNav_(date, iso, base, tz) +
+      '<div class="panel" style="text-align:center;padding:40px"><h2>⚠️ ไม่มีข้อมูลของวันที่ ' + rbEsc_(iso) + '</h2>' +
+      '<p class="muted" style="margin-top:8px">' + rbEsc_(err.message) + '</p>' +
+      '<p class="muted">ยังไม่มีไฟล์ assignment ของวันนี้ หรือบัญชีไม่มีสิทธิ์ — เลือกวันอื่นจากแถบด้านบน</p></div></div></body></html>';
+  }
+  return HtmlService.createHtmlOutput(html).setTitle('AOTGA · Manpower Dashboard')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/** Load the PSA roster (+ LL) for a date. Used by doGet and the lazy tab loaders. */
+function rbLoadResLL_(date) {
+  var roster = rbOpenTodayRoster_(date);
+  var res = readRosterFromSpreadsheet(roster.ss);
+  if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
+  var ll = null;
+  if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
+  return { res: res, ll: ll };
+}
+function rbDateFromIso_(iso) { var a = String(iso).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
+
+/** Lazy tab: Timetable HTML (called from client via google.script.run). */
+function rbTimetableHtml(iso) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    return rbTblCard_('🕓 Timetable · ตารางงานรายคน (เวลาเข้า-ออกกะ · OT · STA/STD)',
+      '<tr><th>ทีม</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
+      rbTtRows_(d.res, d.ll),
+      '<input id="ttq" class="search" placeholder="🔎 ค้นหา ชื่อ/ทีม/เที่ยวบิน" oninput="filterTT()">');
+  } catch (e) { return '<div class="panel">โหลด Timetable ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
+/** Lazy tab: Flights & SLA HTML. */
+function rbFlightsHtml(iso) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    return rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
+      '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>ส่ง/ต้องการ</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th><th>สถานะ</th></tr>',
+      rbFltRows_(d.res, d.ll));
+  } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
+
+function rbEsc_(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function rbOtTxt_(n,h){ return n>0 ? (n+' <span class="muted">('+h+'h)</span>') : '·'; }
+
+// ── header + week nav + tabs ────────────────────────────────────────────────
+function rbAppbar_(date) {
+  var be = date.getFullYear()+543;
+  return '<div class="appbar rise"><div class="appbar__row">' +
+    '<div class="brand"><div class="brand__mark">✈</div><div><h1>AOT<span>GA</span></h1>' +
+    '<p>Passenger Services · การโดยสาร</p></div></div>' +
+    '<div class="appbar__meta"><div class="datepill"><div class="d tnum">' + date.getDate()+' '+MONW[date.getMonth()]+' '+be +
+    '</div><div class="s">Daily Manpower · ตารางกำลังพลรายวัน</div></div>' +
+    '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">' +
+    '<div class="livedot"><i></i>Live</div>' +
+    '<button class="btn btn--accent" onclick="window.print()">⬇ Export PDF</button></div></div></div></div>';
+}
+function rbWeekNav_(date, iso, base, tz) {
+  var chips = [];
+  for (var off=-7; off<=7; off++) {
+    var d = new Date(date.getFullYear(), date.getMonth(), date.getDate()+off);
+    var i = Utilities.formatDate(d, tz||'Asia/Bangkok', 'yyyy-MM-dd');
+    chips.push('<a class="wk' + (i===iso?' sel':'') + '" href="' + (base||'') + '?date=' + i + '" target="_top">' +
+      '<span class="wd">' + DOWW[d.getDay()] + '</span><span class="wn tnum">' + d.getDate() + '</span>' +
+      '<span class="wm">' + MONW[d.getMonth()] + '</span></a>');
+  }
+  var prev = new Date(date.getFullYear(),date.getMonth(),date.getDate()-1);
+  var next = new Date(date.getFullYear(),date.getMonth(),date.getDate()+1);
+  function u(d){ return (base||'') + '?date=' + Utilities.formatDate(d, tz||'Asia/Bangkok','yyyy-MM-dd'); }
+  return '<div class="weeknav"><div class="weeknav__date">' +
+    '<a class="iconbtn" href="' + u(prev) + '" target="_top">‹</a>' +
+    '<a class="iconbtn" href="' + u(next) + '" target="_top">›</a></div>' +
+    '<div class="weeknav__strip">' + chips.join('') + '</div></div>';
+}
+function rbTabs_(shortCount) {
+  return '<div class="tabs">' +
+    '<button class="tab active" id="tab-dash" onclick="showView(\'dash\')">▦ Dashboard</button>' +
+    '<button class="tab" id="tab-tt" onclick="showView(\'tt\');loadTT()">☰ Timetable</button>' +
+    '<button class="tab" id="tab-flt" onclick="showView(\'flt\');loadFlt()">✈ Flights &amp; SLA' +
+    (shortCount ? '<span class="badge tnum">' + shortCount + '</span>' : '') + '</button>' +
+    '<button class="tab" id="tab-ot" onclick="showView(\'ot\');loadOT()">⏱️ OT สัปดาห์</button></div>';
+}
+
+/** Called from the client (google.script.run) when the OT-week tab is opened.
+ *  Computes weekly OT (reads the week's files) and returns the table HTML. */
+function rbWeeklyOTHtml(iso) {
+  try {
+    var a = String(iso).split('-');
+    var date = new Date(+a[0], +a[1] - 1, +a[2]);
+    var wk = rbWeeklyOT_(date);
+    var dayCols = [];
+    for (var d = wk.startDay; d <= wk.endDay; d++) dayCols.push(d);
+    var th = '<tr><th>ชื่อ</th><th>ทีม</th><th>ตำแหน่ง</th>' +
+      dayCols.map(function (x) { return '<th>' + x + '</th>'; }).join('') + '<th>OT รวม/สัปดาห์</th><th>สถานะ</th></tr>';
+    var rows = wk.people.map(function (p) {
+      var tds = dayCols.map(function (x) { return '<td class="tnum">' + (p.daily[x] || '') + '</td>'; }).join('');
+      var status = p.total > OT_WEEK_LIMIT ? '<span class="badd">🔴 เกิน ' + OT_WEEK_LIMIT + '</span>'
+                 : (p.total >= 30 ? '<span class="muted">🟡 ใกล้</span>' : '');
+      return '<tr class="' + (p.total > OT_WEEK_LIMIT ? 'rowbad' : '') + '"><td class="b">' + rbEsc_(p.name) + '</td><td>' +
+        rbEsc_(p.team) + '</td><td>' + rbEsc_(p.pos) + '</td>' + tds + '<td class="tnum"><b>' + p.total + 'h</b></td><td>' + status + '</td></tr>';
+    }).join('');
+    var hd = '<div class="sectionlabel">สัปดาห์ ' + wk.startDay + '-' + wk.endDay + ' · อ่าน ' + wk.daysRead.length +
+      ' วัน · <b class="badd">เกิน ' + OT_WEEK_LIMIT + ' ชม.: ' + wk.over.length + ' คน</b></div>';
+    return hd + '<div class="tablecard"><div class="tablecard__hd"><h3>⏱️ OT รายสัปดาห์ (เกิน ' + OT_WEEK_LIMIT + ' ชม./สัปดาห์)</h3></div>' +
+      '<div style="overflow-x:auto"><table class="tbl"><thead>' + th + '</thead><tbody>' +
+      (rows || '<tr><td colspan="' + (dayCols.length + 5) + '" class="muted">ยังไม่มีข้อมูล OT ในสัปดาห์นี้</td></tr>') +
+      '</tbody></table></div></div>';
+  } catch (e) { return '<div class="panel">โหลด OT รายสัปดาห์ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
+
+// ── KPI hero ────────────────────────────────────────────────────────────────
+function rbKpiHero_(C, master) {
+  var attPct = C.staff>0 ? Math.round((C.working)/C.staff*100) : 0;
+  var avg = C.otPeople>0 ? Math.round(C.otHours/C.otPeople*10)/10 : 0;
+  var defs = [
+    ['👥', CI.royal, C.staff, '', 'Total Staff', 'พนักงานทั้งหมด', master ? ('+'+(master.PSA.total+master.LL.total)+' active') : ''],
+    ['✅', CI.good, C.working, '', 'Working', 'มาปฏิบัติงาน', attPct+'% attendance'],
+    ['⬛', CI.grey, C.off, '', 'OFF', 'วันหยุด', ''],
+    ['🟡', CI.yellow, C.ot_off, '', 'OT OFF (XX)', 'ทำ OT วันหยุด', C.otOffHrs+'h'],
+    ['⏰', CI.red, C.otPeople, '', 'OT · People', 'พนักงานทำ OT', 'รวมทั้งกะ'],
+    ['⏱️', CI.bosch, C.otHours, 'h', 'OT · Hours', 'ชั่วโมง OT รวม', avg+'h เฉลี่ย/คน'],
+  ];
+  return '<div class="kpis rise">' + defs.map(function (d) {
+    return '<div class="kpi" style="--c:' + d[1] + '"><div class="kpi__top">' +
+      '<div class="kpi__ico" style="--c:' + d[1] + '">' + d[0] + '</div>' +
+      (d[6] ? '<div class="kpi__trend">' + rbEsc_(d[6]) + '</div>' : '') + '</div>' +
+      '<div class="kpi__val tnum">' + d[2] + (d[3]||'') + '</div>' +
+      '<div class="kpi__lbl">' + d[4] + '</div><div class="kpi__sub">' + d[5] + '</div></div>';
+  }).join('') + '</div>';
+}
+
+// ── table rows ──────────────────────────────────────────────────────────────
+function rbBarMini_(pct){ return '<div class="barmini"><i style="width:'+pct+'%"></i><b>'+pct+'%</b></div>'; }
+function rbAggRowHtml_(label, b) {
+  var work = b.working + b.ot_off, pct = b.staff>0 ? Math.round(work/b.staff*100) : 0;
+  return '<tr><td class="b">' + rbEsc_(label) + '</td><td class="tnum">' + b.staff + '</td><td class="tnum"><b>' + work +
+    '</b></td><td class="tnum">' + rbOtTxt_(b.ot_off, b.otOffHrs) + '</td><td class="tnum">' + rbOtTxt_(b.otPre, b.otPreHrs) +
+    '</td><td class="tnum">' + rbOtTxt_(b.otPost, b.otPostHrs) + '</td><td style="min-width:90px">' + rbBarMini_(pct) + '</td></tr>';
+}
+function rbTeamRows_(teams, order){ return order.map(function(t){ return rbAggRowHtml_(t, teams[t]); }).join(''); }
+function rbPosRows_(positions, order) {
+  return order.map(function (p) {
+    var b = positions[p]; if (!b) return '';
+    return '<tr><td class="b">' + p + '</td><td class="tnum">' + b.staff + '</td><td class="tnum"><b>' + (b.working + b.ot_off) +
+      '</b></td><td class="tnum">' + rbOtTxt_(b.ot_off, b.otOffHrs) + '</td><td class="tnum">' + b.off + '</td><td class="tnum">' + b.sick +
+      '</td><td class="tnum">' + b.leave + '</td><td class="tnum">' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td class="tnum">' +
+      rbOtTxt_(b.otPost, b.otPostHrs) + '</td></tr>';
+  }).join('');
+}
+function rbFlightChips_(assigns) {
+  if (!assigns || !assigns.length) return '<span class="muted">—</span>';
+  return assigns.map(function (a) {
+    var t = a.task ? (' <span class="tag">'+rbEsc_(a.task)+'</span>') : '';
+    var sta = (a.STA||a.STD) ? (' '+(a.STA||'–')+'/'+(a.STD||'–')) : '';
+    var op = (a.OP||a.CL) ? (' <span class="muted">'+(a.OP||'–')+'-'+(a.CL||'–')+'</span>') : '';
+    return '<span class="chip" style="cursor:default">' + rbEsc_(a.flight) + t + sta + op + '</span>';
+  }).join(' ');
+}
+function rbTtRows_(res, ll) {
+  var rows = [];
+  Object.keys(res.teams).forEach(function (t){ res.teams[t].records.forEach(function(r){ if(r.bucket==='working'||r.bucket==='ot_off') rows.push(r); }); });
+  if (ll && ll.totals.staff>0) Object.keys(ll.sections).forEach(function(s){ ll.sections[s].records.forEach(function(r){ if(r.bucket==='working'||r.bucket==='ot_off') rows.push(r); }); });
+  rows.sort(function(a,b){ return String(a.team).localeCompare(String(b.team)) || ((a.shiftStart==null?99999:a.shiftStart)-(b.shiftStart==null?99999:b.shiftStart)); });
+  return rows.map(function (r) {
+    var st = r.shiftStart==null?99999:r.shiftStart;
+    var sh = rbEsc_(r.shift||'') + (r.shiftTime&&r.shiftTime!==r.shift ? ' <span class="muted">'+r.shiftTime+'</span>' : '');
+    var ot = r.ot ? ((r.bucket==='ot_off'?'<span class="tag">OFF</span>':(r.otType==='PRE'?'<span class="tag">ก่อน</span>':'<span class="tag">หลัง</span>'))+' '+(r.otTime||'')+' <span class="muted">('+r.ot+'h)</span>') : '<span class="muted">—</span>';
+    return '<tr data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+'</td><td>'+rbEsc_(r.name)+
+      '</td><td>'+rbEsc_(r.pos||'')+'</td><td>'+sh+'</td><td>'+ot+'</td><td class="tnum">'+(r.assignments?r.assignments.length:0)+
+      '</td><td>'+rbFlightChips_(r.assignments)+'</td></tr>';
+  }).join('');
+}
+function rbFltRows_(res, ll) {
+  return slaCollectFlights_(res, ll).map(function (f) {
+    function c(ph){ return '<td class="tnum '+(f.short[ph]?'badd':'okk')+'">'+f.assigned[ph]+'/'+f.req[ph]+(f.short[ph]?' ▼'+f.short[ph]:'')+'</td>'; }
+    var st = f.ok ? '<span class="okk">✅ ครบ</span>' : '<span class="badd">⚠️ '+rbEsc_(slaShortText_(f))+'</span>';
+    return '<tr class="'+(f.ok?'':'rowbad')+'"><td class="b">'+rbEsc_(f.flight)+'</td><td>'+f.airline+'</td><td>'+rbEsc_(f.teamList)+
+      '</td><td class="tnum">'+(f.STA||'')+'</td><td class="tnum">'+(f.STD||'')+'</td><td class="tnum"><b>'+f.assigned.total+'</b>/'+f.req.total+'</td>'+
+      c('SUP')+c('CI')+c('GATE')+c('ARR')+'<td>'+st+'</td></tr>';
+  }).join('');
+}
+
+function rbTblCard_(title, headHtml, bodyHtml, extraHd) {
+  return '<div class="tablecard"><div class="tablecard__hd"><h3>'+title+'</h3>'+(extraHd||'')+'</div>' +
+    '<div style="overflow-x:auto"><table class="tbl"><thead>'+headHtml+'</thead><tbody>'+bodyHtml+'</tbody></table></div></div>';
+}
+
+function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode) {
+  var P = res.totals, L = ll && ll.totals.staff>0 ? ll.totals : null;
+  function comb(k){ return P[k] + (L?L[k]:0); }
+  var C = { staff:comb('staff'), working:comb('working')+comb('ot_off'), off:comb('off'), sick:comb('sick'),
+            leave:comb('leave'), ot_off:comb('ot_off'), otOffHrs:Math.round(comb('otOffHrs')*10)/10,
+            otPeople:comb('otPeople'), otHours:Math.round(comb('otHours')*10)/10,
+            otPre:comb('otPre'), otPreHrs:Math.round(comb('otPreHrs')*10)/10,
+            otPost:comb('otPost'), otPostHrs:Math.round(comb('otPostHrs')*10)/10 };
+  var teamOrder = Object.keys(res.teams).sort(function(a,b){ return (res.teams[b].working+res.teams[b].ot_off)-(res.teams[a].working+res.teams[a].ot_off); });
+  var shortCount = slaCollectFlights_(res, ll).filter(function(f){return !f.ok;}).length;
+
+  var cd = { tn:teamOrder, tw:teamOrder.map(function(t){return res.teams[t].working+res.teams[t].ot_off;}),
+    tt:teamOrder.map(function(t){return res.teams[t].staff;}), work:C.working, off:C.off, sick:C.sick, leave:C.leave,
+    otPreN:C.otPre, otPostN:C.otPost, otOffN:C.ot_off, otPreH:C.otPreHrs, otPostH:C.otPostHrs, otOffH:C.otOffHrs, c:CI };
+
+  var teamHead = '<tr><th>ทีม</th><th>Total</th><th>Working</th><th>OT-Off</th><th>OT ก่อน</th><th>OT หลัง</th><th>%Working</th></tr>';
+  var posHead = '<tr><th>ตำแหน่ง</th><th>Total</th><th>Work</th><th>OT-Off</th><th>Off</th><th>Sick</th><th>Leave</th><th>OT ก่อน</th><th>OT หลัง</th></tr>';
+  var masterLine = master ? ('<div class="sectionlabel">👥 พนักงานทั้งหมด (Active): PSA <b>'+master.PSA.total+'</b> + LL <b>'+master.LL.total+'</b> = <b>'+(master.PSA.total+master.LL.total)+'</b> คน</div>') : '';
+  var llCards = '';
+  if (L) {
+    var secRows = Object.keys(ll.sections).map(function(s){ return rbAggRowHtml_(s, ll.sections[s]); }).join('');
+    llCards = rbTblCard_('🟡 LL by Section', '<tr><th>ส่วนงาน</th><th>Total</th><th>Working</th><th>OT-Off</th><th>OT ก่อน</th><th>OT หลัง</th><th>%Working</th></tr>', secRows) +
+      rbTblCard_('🟡 LL by Position', posHead, rbPosRows_(ll.positions, ['PSS','SNR','PSA','Porter','Admin','Trainee']));
+  }
+
+  var otbar = '<div class="otsplit"><div class="otrow"><span>⏱️ OT ก่อนกะ</span><b class="tnum">'+C.otPre+' คน · '+C.otPreHrs+'h</b></div>' +
+    '<div class="otrow"><span>⏱️ OT หลังกะ</span><b class="tnum">'+C.otPost+' คน · '+C.otPostHrs+'h</b></div>' +
+    '<div class="otrow"><span>⏱️ OT OFF</span><b class="tnum">'+C.ot_off+' คน · '+C.otOffHrs+'h</b></div>' +
+    '<div class="otrow"><span>รวม OT</span><b class="tnum">'+C.otPeople+' คน · '+C.otHours+'h</b></div></div>';
+
+  // tab contents: inline (offline file) or lazy placeholders (web app)
+  var ttInner = staticMode
+    ? rbTblCard_('🕓 Timetable · ตารางงานรายคน (เวลาเข้า-ออกกะ · OT · STA/STD)',
+        '<tr><th>ทีม</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
+        rbTtRows_(res, ll), '<input id="ttq" class="search" placeholder="🔎 ค้นหา ชื่อ/ทีม/เที่ยวบิน" oninput="filterTT()">')
+    : '<div id="ttbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Timetable…</div></div>';
+  var fltInner = staticMode
+    ? rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
+        '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>ส่ง/ต้องการ</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th><th>สถานะ</th></tr>',
+        rbFltRows_(res, ll))
+    : '<div id="fltbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Flights &amp; SLA…</div></div>';
+  var otInner = staticMode ? rbWeeklyOTHtml(iso)
+    : '<div id="otbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังคำนวณ OT รายสัปดาห์ (อ่านไฟล์หลายวัน อาจใช้เวลาสักครู่)…</div></div>';
+
+  return '<!doctype html><html lang="th" data-theme="corporate"><head><meta charset="utf-8">' +
+    '<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">' +
+    '<style>' + rbDesignCss_() + '</style></head><body><div class="wrap">' +
+    rbAppbar_(date) + rbWeekNav_(date, iso, base, tz) + rbTabs_(shortCount) +
+    '<div id="view-dash">' +
+    rbKpiHero_(C, master) + masterLine +
+    '<div class="grid grid--charts" style="margin-top:16px">' +
+      '<div class="panel"><div class="panel__hd"><h3>📊 Working / Total ต่อทีม</h3></div><canvas id="c1" height="150"></canvas></div>' +
+      '<div class="panel"><div class="panel__hd"><h3>🧭 ภาพรวมสถานะ</h3></div><canvas id="c2" height="150"></canvas></div></div>' +
+    '<div class="grid grid--charts" style="margin-top:16px">' +
+      '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (คน)</h3></div><canvas id="c3" height="140"></canvas></div>' +
+      '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (ชม.)</h3></div><canvas id="c4" height="140"></canvas></div>' +
+      '<div class="panel">' + otbar + '</div></div>' +
+    '<div style="margin-top:16px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
+    '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
+    (L ? '<div style="margin-top:16px">'+llCards+'</div>' : '') +
+    '</div>' +
+    '<div id="view-tt" style="display:none">' + ttInner + '</div>' +
+    '<div id="view-flt" style="display:none">' + fltInner + '</div>' +
+    '<div id="view-ot" style="display:none">' + otInner + '</div>' +
+    '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
+    '</div>' +
+    '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
+    '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
+    '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
+    'function showView(v){["dash","tt","flt","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
+    'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
+    'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
+    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}' +
+    'function filterTT(){var q=document.getElementById("ttq").value.toLowerCase();var t=document.querySelectorAll("#view-tt tbody tr");[].forEach.call(t,function(r){r.style.display=r.textContent.toLowerCase().indexOf(q)>=0?"":"none";});}' +
+    'window.addEventListener("load",function(){if(!window.Chart)return;if(window.ChartDataLabels)Chart.register(window.ChartDataLabels);' +
+    'Chart.defaults.color="'+CI.sub+'";Chart.defaults.font.family="Kanit,sans-serif";Chart.defaults.font.weight="600";' +
+    'new Chart(c1,{type:"bar",data:{labels:CD.tn,datasets:[{label:"Working",data:CD.tw,backgroundColor:CD.c.teal,borderRadius:5},{label:"Total",data:CD.tt,backgroundColor:"#c9d6e8",borderRadius:5}]},options:{plugins:{legend:{labels:{boxWidth:12}},datalabels:{anchor:"end",align:"end",font:{size:9,weight:"700"},color:"#15233f"}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"},suggestedMax:Math.max.apply(null,CD.tt)+3}}}});' +
+    'new Chart(c2,{type:"doughnut",data:{labels:["Working","OFF","Sick","Leave"],datasets:[{data:[CD.work,CD.off,CD.sick,CD.leave],backgroundColor:[CD.c.teal,CD.c.grey,CD.c.red,CD.c.yellow],borderColor:"#fff",borderWidth:2}]},options:{plugins:{legend:{position:"bottom",labels:{boxWidth:12}},datalabels:{color:"#fff",font:{weight:"700"}}}}});' +
+    'var OTL=["ก่อนกะ","หลังกะ","OT OFF"],OTC=[CD.c.yellow,CD.c.royal,CD.c.red];' +
+    'new Chart(c3,{type:"bar",data:{labels:OTL,datasets:[{data:[CD.otPreN,CD.otPostN,CD.otOffN],backgroundColor:OTC,borderRadius:6}]},options:{plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#15233f",font:{weight:"700"},formatter:function(v){return v+" คน";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});' +
+    'new Chart(c4,{type:"bar",data:{labels:OTL,datasets:[{data:[CD.otPreH,CD.otPostH,CD.otOffH],backgroundColor:OTC,borderRadius:6}]},options:{plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#15233f",font:{weight:"700"},formatter:function(v){return v+"h";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});});' +
+    '</script></body></html>';
+}
+
+function rbDesignCss_() { return rbDESIGN_CSS_; }
+var rbDESIGN_CSS_ = `/* ============================================================================
+ * AOTGA Daily Manpower Dashboard — design system
+ * Aviation operations aesthetic on the AOTGA corporate identity.
+ * Themeable via [data-theme] on <html>: corporate | vibrant | soft
+ * ==========================================================================*/
+
+:root {
+  /* AOTGA CI */
+  --royal: #1D428A;
+  --bosch: #236192;
+  --sky: #4EC3E0;
+  --teal: #3FBCBE;
+  --yellow: #FEC909;
+  --red: #D92526;
+  --grey: #7C878F;
+
+  /* semantic */
+  --brand: var(--royal);
+  --brand-2: var(--bosch);
+  --accent: var(--sky);
+  --good: #1BA37A;
+  --warn: #E8A400;
+  --alert: var(--red);
+
+  /* surfaces */
+  --bg: #eef3fa;
+  --bg-2: #e3ecf7;
+  --card: #ffffff;
+  --ink: #15233f;
+  --ink-2: #5a6b86;
+  --ink-3: #93a1b8;
+  --line: #e4ebf4;
+  --line-2: #eef2f8;
+
+  --radius: 16px;
+  --radius-sm: 11px;
+  --radius-lg: 22px;
+  --shadow: 0 2px 4px rgba(20,40,80,.04), 0 12px 28px rgba(20,40,80,.07);
+  --shadow-sm: 0 1px 2px rgba(20,40,80,.05), 0 4px 12px rgba(20,40,80,.05);
+  --shadow-lg: 0 8px 18px rgba(20,40,80,.08), 0 30px 60px rgba(20,40,80,.12);
+
+  --header-grad: linear-gradient(118deg, #16315f 0%, var(--royal) 46%, var(--bosch) 100%);
+  --maxw: 1320px;
+  --font: 'Kanit', -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* ---- Theme: VIBRANT (modern & colorful) ---------------------------------- */
+[data-theme="vibrant"] {
+  --bg: #eaf1fb;
+  --bg-2: #dfeafb;
+  --header-grad: linear-gradient(120deg, #1b2a6b 0%, var(--royal) 38%, var(--teal) 100%);
+  --shadow: 0 2px 6px rgba(29,66,138,.06), 0 16px 36px rgba(29,66,138,.12);
+  --shadow-lg: 0 10px 24px rgba(29,66,138,.12), 0 36px 70px rgba(29,66,138,.18);
+}
+
+/* ---- Theme: SOFT (friendly & rounded) ------------------------------------ */
+[data-theme="soft"] {
+  --bg: #f4f6fb;
+  --bg-2: #eef1f8;
+  --card: #ffffff;
+  --line: #eceff6;
+  --radius: 22px;
+  --radius-sm: 15px;
+  --radius-lg: 28px;
+  --header-grad: linear-gradient(125deg, #2a4f97 0%, #3a6fc0 60%, #5aa9d8 100%);
+  --shadow: 0 3px 8px rgba(40,60,100,.05), 0 16px 40px rgba(40,60,100,.08);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { background: var(--bg); }
+body {
+  font-family: var(--font);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(78,195,224,.18), transparent 60%),
+    radial-gradient(1000px 500px at -5% 0%, rgba(29,66,138,.10), transparent 55%),
+    var(--bg);
+}
+
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 20px 24px 56px; }
+
+/* tabular numerals everywhere numbers matter */
+.tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+/* ============================ HEADER ====================================== */
+.appbar {
+  position: relative;
+  background: var(--header-grad);
+  border-radius: var(--radius-lg);
+  padding: 20px 28px;
+  color: #fff;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+.appbar::before {
+  /* subtle radar / flight-path arcs */
+  content: "";
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(520px 520px at 88% -120%, rgba(255,255,255,.14), transparent 60%),
+    repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 1px, transparent 1px 64px);
+  pointer-events: none;
+}
+.appbar__row { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 15px; }
+.brand__mark {
+  width: 52px; height: 52px; border-radius: 14px;
+  background: rgba(255,255,255,.12);
+  border: 1.5px solid rgba(255,255,255,.4);
+  display: grid; place-items: center; flex: 0 0 auto;
+  backdrop-filter: blur(4px);
+}
+.brand__mark svg { width: 30px; height: 30px; }
+.brand h1 { font-size: 21px; font-weight: 800; letter-spacing: .6px; line-height: 1.05; }
+.brand h1 span { color: var(--sky); }
+.brand p { font-size: 12px; font-weight: 300; color: #cfe1f5; margin-top: 3px; letter-spacing: .2px; white-space: nowrap; }
+
+.appbar__meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.datepill {
+  display: flex; flex-direction: column; align-items: flex-end;
+  padding-right: 16px; border-right: 1px solid rgba(255,255,255,.22);
+}
+.datepill .d { font-size: 19px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+.datepill .s { font-size: 11px; color: #cfe1f5; font-weight: 300; white-space: nowrap; }
+.livedot { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: #d8e8f8; font-weight: 400; }
+.livedot i { width: 8px; height: 8px; border-radius: 50%; background: #58e6a0; box-shadow: 0 0 0 0 rgba(88,230,160,.6); animation: pulse 2s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(88,230,160,.5); } 70% { box-shadow: 0 0 0 7px rgba(88,230,160,0); } 100% { box-shadow: 0 0 0 0 rgba(88,230,160,0); } }
+
+.btn {
+  font-family: inherit; cursor: pointer; border: 0; border-radius: 11px;
+  padding: 10px 15px; font-size: 13px; font-weight: 600; display: inline-flex;
+  align-items: center; gap: 7px; transition: transform .12s ease, box-shadow .12s ease, background .12s;
+}
+.btn:active { transform: translateY(1px); }
+.btn--ghost { background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.28); }
+.btn--ghost:hover { background: rgba(255,255,255,.24); }
+.btn--accent { background: var(--sky); color: #0c2c45; }
+.btn--accent:hover { box-shadow: 0 6px 16px rgba(78,195,224,.4); }
+
+/* ============================ WEEK NAV ==================================== */
+.weeknav { display: flex; align-items: center; gap: 12px; margin: 16px 0 18px; }
+.weeknav__strip { display: flex; gap: 7px; overflow-x: auto; flex: 1; padding: 3px 1px 6px; scrollbar-width: thin; }
+.weeknav__strip::-webkit-scrollbar { height: 5px; }
+.weeknav__strip::-webkit-scrollbar-thumb { background: #c7d4e6; border-radius: 4px; }
+.wk {
+  flex: 0 0 auto; min-width: 50px; text-align: center; cursor: pointer;
+  background: var(--card); border: 1px solid var(--line); border-radius: 13px;
+  padding: 7px 6px 8px; line-height: 1.1; transition: all .14s ease; user-select: none;
+}
+.wk:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+.wk .wd { display: block; font-size: 9.5px; color: var(--ink-3); font-weight: 500; letter-spacing: .4px; }
+.wk .wn { display: block; font-size: 18px; font-weight: 700; color: var(--ink); }
+.wk .wm { display: block; font-size: 9px; color: var(--ink-3); font-weight: 400; }
+.wk.sel { background: var(--brand); border-color: var(--brand); box-shadow: 0 8px 18px rgba(29,66,138,.28); }
+.wk.sel .wd, .wk.sel .wm { color: #bcd2ef; }
+.wk.sel .wn { color: #fff; }
+.wk.today:not(.sel) { border-color: var(--accent); }
+.wk.today:not(.sel) .wn { color: var(--brand); }
+.weeknav__date { display: flex; align-items: center; gap: 8px; }
+.weeknav__date input {
+  font-family: inherit; background: var(--card); border: 1px solid var(--line);
+  color: var(--ink); border-radius: 11px; padding: 9px 11px; font-size: 13px; font-weight: 500;
+}
+.iconbtn {
+  width: 38px; height: 38px; flex: 0 0 auto; border-radius: 11px; border: 1px solid var(--line);
+  background: var(--card); color: var(--brand); cursor: pointer; display: grid; place-items: center;
+  font-size: 16px; transition: all .14s;
+}
+.iconbtn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ============================ TABS ======================================== */
+.tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+.tab {
+  font-family: inherit; cursor: pointer; background: var(--card); border: 1px solid var(--line);
+  color: var(--ink-2); border-radius: 13px; padding: 11px 18px; font-weight: 600; font-size: 14px;
+  display: inline-flex; align-items: center; gap: 9px; transition: all .15s ease;
+}
+.tab svg { width: 17px; height: 17px; }
+.tab:hover { color: var(--brand); border-color: #cdd9ec; }
+.tab.active { background: var(--brand); color: #fff; border-color: var(--brand); box-shadow: 0 8px 18px rgba(29,66,138,.24); }
+.tab .badge {
+  font-size: 11px; font-weight: 700; background: rgba(255,255,255,.22); color: #fff;
+  border-radius: 20px; padding: 1px 8px; min-width: 20px; text-align: center;
+}
+.tab:not(.active) .badge { background: #fdeaea; color: var(--red); }
+
+/* ============================ KPI HERO ==================================== */
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 16px; }
+.kpi {
+  position: relative; background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px 16px 15px; box-shadow: var(--shadow-sm);
+  overflow: hidden; transition: transform .16s ease, box-shadow .16s ease;
+}
+.kpi:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+.kpi::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); }
+.kpi__top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.kpi__ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--c) 14%, white); color: var(--c); }
+.kpi__ico svg { width: 19px; height: 19px; }
+.kpi__trend { font-size: 11px; font-weight: 600; color: var(--ink-3); display: inline-flex; align-items: center; gap: 3px; }
+.kpi__trend.up { color: var(--good); }
+.kpi__trend.down { color: var(--alert); }
+.kpi__val { font-size: 34px; font-weight: 800; color: var(--ink); line-height: 1; letter-spacing: -.5px; }
+.kpi__val small { font-size: 15px; font-weight: 600; color: var(--ink-3); margin-left: 2px; }
+.kpi__lbl { font-size: 12.5px; color: var(--ink-2); font-weight: 500; margin-top: 5px; }
+.kpi__sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+
+/* primary attendance band */
+.attband {
+  display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 14px; margin-bottom: 16px;
+}
+.panel {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 18px 20px; box-shadow: var(--shadow-sm);
+}
+.panel--brand { background: var(--header-grad); color: #fff; border: 0; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+.panel--brand::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 1px, transparent 1px 54px); }
+.panel h3 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.panel--brand h3 { color: #cfe1f5; }
+.panel__hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.panel__hd h3 { margin-bottom: 0; }
+
+/* attendance ring */
+.attring { position: relative; display: flex; align-items: center; gap: 18px; }
+.ring { position: relative; width: 132px; height: 132px; flex: 0 0 auto; }
+.ring__center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.ring__center .big { font-size: 30px; font-weight: 800; line-height: 1; color: #fff; }
+.ring__center .lbl { font-size: 10.5px; color: #cfe1f5; margin-top: 3px; }
+.attlegend { display: flex; flex-direction: column; gap: 9px; flex: 1; }
+.leg { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.leg i { width: 11px; height: 11px; border-radius: 4px; flex: 0 0 auto; }
+.leg .lk { color: #d6e4f5; font-weight: 300; flex: 1; }
+.leg .lv { font-weight: 700; font-size: 15px; }
+
+/* mini stat list */
+.statlist { display: flex; flex-direction: column; gap: 12px; }
+.statrow { display: flex; align-items: center; gap: 12px; }
+.statrow__ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--c) 13%, white); color: var(--c); flex: 0 0 auto; }
+.statrow__ico svg { width: 18px; height: 18px; }
+.statrow__t { flex: 1; }
+.statrow__t .k { font-size: 12px; color: var(--ink-2); font-weight: 500; }
+.statrow__t .v { font-size: 19px; font-weight: 800; color: var(--ink); line-height: 1.1; }
+.statrow__t .v small { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+
+/* OT split mini bars */
+.otsplit { display: flex; flex-direction: column; gap: 13px; }
+.otrow .otrow__top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+.otrow .otrow__top .k { font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
+.otrow .otrow__top .v { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; padding-left: 10px; }
+.otrow .otrow__top .v small { color: var(--ink-3); font-weight: 500; }
+.track { height: 9px; background: var(--line-2); border-radius: 6px; overflow: hidden; }
+.track > i { display: block; height: 100%; border-radius: 6px; }
+
+/* ============================ GRID ======================================= */
+.grid { display: grid; gap: 16px; }
+.grid--2 { grid-template-columns: 1.35fr 1fr; }
+.grid--charts { grid-template-columns: 1.4fr 1fr; margin-bottom: 16px; }
+
+/* ============================ CHARTS ===================================== */
+.barchart { display: flex; flex-direction: column; gap: 11px; }
+.barchart__row { display: grid; grid-template-columns: 116px 1fr 46px; align-items: center; gap: 12px; }
+.barchart__lbl { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.barchart__lbl .tag { font-size: 10px; font-weight: 700; color: #fff; background: var(--brand); border-radius: 6px; padding: 1px 7px; letter-spacing: .3px; }
+.barchart__bar { position: relative; height: 24px; background: var(--line-2); border-radius: 8px; overflow: hidden; }
+.barchart__fill { position: relative; z-index: 1; height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--teal), var(--sky)); display: flex; align-items: center; transition: width .9s cubic-bezier(.2,.8,.2,1); }
+.barchart__ghost { position: absolute; inset: 0; z-index: 0; }
+.barchart__val { font-size: 13px; font-weight: 700; color: var(--ink); text-align: right; }
+.barchart__val small { color: var(--ink-3); font-weight: 500; }
+
+.donut-wrap { display: flex; align-items: center; gap: 20px; }
+.donut { width: 150px; height: 150px; flex: 0 0 auto; }
+.donut-legend { display: flex; flex-direction: column; gap: 11px; flex: 1; }
+
+/* ============================ TABLES ===================================== */
+.tablecard { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; }
+.tablecard__hd { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 13px; }
+.tablecard__hd h3 { font-size: 14.5px; font-weight: 700; color: var(--brand); display: flex; align-items: center; gap: 9px; }
+.tablecard__hd .pill { font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--bg-2); border-radius: 20px; padding: 3px 11px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl th { text-align: right; color: var(--ink-3); font-weight: 600; font-size: 10.5px; letter-spacing: .4px; text-transform: uppercase; padding: 8px 12px; background: var(--bg-2); }
+.tbl th:first-child { text-align: left; }
+.tbl td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line-2); color: var(--ink); }
+.tbl td:first-child { text-align: left; }
+.tbl tbody tr:last-child td { border-bottom: 0; }
+.tbl tbody tr:hover td { background: color-mix(in srgb, var(--accent) 7%, white); }
+.tbl tr.total td { background: color-mix(in srgb, var(--brand) 6%, white); font-weight: 700; border-top: 2px solid var(--line); }
+.tbl .nm { font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 9px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.tag {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 34px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .4px; color: #fff;
+  background: var(--brand); border-radius: 6px; padding: 2px 8px;
+}
+.muted { color: var(--ink-3); font-weight: 400; }
+.b { font-weight: 700; }
+
+/* mini progress in cells */
+.cellbar { position: relative; height: 18px; background: var(--line-2); border-radius: 6px; overflow: hidden; min-width: 90px; }
+.cellbar > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; background: linear-gradient(90deg, var(--teal), var(--sky)); }
+.cellbar > span { position: absolute; right: 7px; top: 0; line-height: 18px; font-size: 11px; font-weight: 700; color: var(--brand); }
+
+/* ot mini cell */
+.otcell { font-weight: 700; }
+.otcell small { color: var(--ink-3); font-weight: 500; font-size: 11px; }
+.otcell.pre { color: var(--warn); }
+.otcell.post { color: var(--royal); }
+
+/* ============================ TIMETABLE ================================== */
+.ttbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.search { position: relative; flex: 1; min-width: 200px; }
+.search input { width: 100%; font-family: inherit; border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px 11px 38px; font-size: 13.5px; background: var(--card); color: var(--ink); }
+.search input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 50%, white); border-color: var(--accent); }
+.search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--ink-3); }
+.chipgroup { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font-family: inherit; cursor: pointer; font-size: 12px; font-weight: 600; padding: 8px 13px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); transition: all .13s; }
+.chip:hover { border-color: var(--accent); }
+.chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+.ttgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 13px; }
+.ttcard { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 15px 16px; box-shadow: var(--shadow-sm); transition: transform .14s, box-shadow .14s; }
+.ttcard:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.ttcard__hd { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+.avatar { width: 40px; height: 40px; border-radius: 12px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 15px; background: linear-gradient(135deg, var(--royal), var(--bosch)); }
+.ttcard__id { flex: 1; min-width: 0; }
+.ttcard__id .nm { font-size: 14.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ttcard__id .meta { font-size: 11.5px; color: var(--ink-3); display: flex; align-items: center; gap: 7px; margin-top: 1px; }
+.shiftbadge { text-align: right; flex: 0 0 auto; }
+.shiftbadge .code { font-size: 13px; font-weight: 800; color: var(--brand); }
+.shiftbadge .time { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ttcard__ot { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 8px; margin-bottom: 11px; }
+.ttcard__ot.pre { background: #fff6e0; color: #9a6b00; }
+.ttcard__ot.post { background: #e9f0fb; color: var(--royal); }
+.ttcard__ot.off { background: #fdeaea; color: var(--red); }
+.fstrip { display: flex; flex-direction: column; gap: 7px; }
+.fstrip__item { display: flex; align-items: center; gap: 8px; background: var(--bg-2); border-radius: 10px; padding: 7px 10px; }
+.fstrip__no { font-size: 12.5px; font-weight: 800; color: var(--brand); min-width: 52px; flex: 0 0 auto; }
+.fstrip__task { font-size: 10px; font-weight: 700; color: #fff; background: var(--teal); border-radius: 6px; padding: 2px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 92px; flex: 0 1 auto; }
+.fstrip__time { margin-left: auto; font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; flex: 0 0 auto; white-space: nowrap; }
+.fstrip__time .lab { font-size: 8.5px; font-weight: 700; color: var(--ink-3); letter-spacing: .3px; display: block; }
+.ttcard__empty { font-size: 12px; color: var(--ink-3); font-style: italic; padding: 6px 0; }
+
+/* ============================ FLIGHTS / SLA ============================== */
+.slabar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.slasum { display: flex; gap: 10px; }
+.slasum .pill { display: flex; align-items: center; gap: 8px; padding: 9px 15px; border-radius: 12px; font-size: 13px; font-weight: 600; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+.slasum .pill b { font-size: 17px; font-weight: 800; }
+.slasum .pill.ok b { color: var(--good); }
+.slasum .pill.bad b { color: var(--alert); }
+
+.fltlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
+.boarding {
+  position: relative; display: flex; background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); transition: transform .14s, box-shadow .14s;
+}
+.boarding:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.boarding.short { border-color: #f3c9c9; }
+.boarding__stub {
+  width: 92px; flex: 0 0 auto; background: var(--header-grad); color: #fff;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 14px 8px; position: relative;
+}
+.boarding.short .boarding__stub { background: linear-gradient(160deg, #b3201f, var(--red)); }
+.boarding__stub .ac { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+.boarding__stub .acn { font-size: 8.5px; color: rgba(255,255,255,.8); text-align: center; margin-top: 3px; line-height: 1.2; font-weight: 300; }
+.boarding__perf { position: absolute; right: -7px; top: 0; bottom: 0; width: 14px; background:
+  radial-gradient(circle at center, var(--bg) 0 5px, transparent 5px) repeat-y; background-size: 14px 18px; }
+.boarding__body { flex: 1; padding: 13px 16px 14px; min-width: 0; }
+.boarding__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
+.boarding__fl { font-size: 18px; font-weight: 800; color: var(--ink); letter-spacing: .5px; }
+.boarding__fl small { display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); }
+.boarding__times { text-align: right; font-size: 11px; color: var(--ink-2); }
+.boarding__times .t { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--ink); font-size: 13px; }
+.slastatus { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
+.slastatus.ok { background: #e3f6ee; color: var(--good); }
+.slastatus.bad { background: #fdeaea; color: var(--red); }
+.phases { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.phase { text-align: center; background: var(--bg-2); border-radius: 10px; padding: 8px 4px; }
+.phase.short { background: #fdecec; }
+.phase .pl { font-size: 9.5px; font-weight: 700; color: var(--ink-3); letter-spacing: .4px; text-transform: uppercase; }
+.phase .pv { font-size: 16px; font-weight: 800; color: var(--ink); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.phase.short .pv { color: var(--red); }
+.phase .pv span { font-size: 11px; color: var(--ink-3); font-weight: 600; }
+.phase .pd { font-size: 9.5px; font-weight: 700; margin-top: 1px; }
+.phase.short .pd { color: var(--red); }
+.phase.full .pd { color: var(--good); }
+
+/* ============================ FOOT ====================================== */
+.foot { margin-top: 26px; text-align: center; color: var(--ink-3); font-size: 11.5px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.foot b { color: var(--ink-2); font-weight: 600; }
+
+.sectionlabel { font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--ink-3); margin: 22px 2px 12px; display: flex; align-items: center; gap: 10px; }
+.sectionlabel::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* ============================ RESPONSIVE ================================= */
+@media (max-width: 1080px) {
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .attband { grid-template-columns: 1fr 1fr; }
+  .attband > :first-child { grid-column: 1 / -1; }
+  .grid--2, .grid--charts { grid-template-columns: 1fr; }
+}
+@media (max-width: 680px) {
+  .wrap { padding: 14px 14px 44px; }
+  .kpis { grid-template-columns: repeat(2, 1fr); }
+  .attband { grid-template-columns: 1fr; }
+  .brand h1 { font-size: 18px; }
+  .kpi__val { font-size: 28px; }
+  .fltlist, .ttgrid { grid-template-columns: 1fr; }
+}
+
+/* reveal animation (transform-only so content is never hidden if a frame freezes) */
+@keyframes rise { from { transform: translateY(9px); } to { transform: none; } }
+.rise { animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
+
+/* Tweak: flat cards */
+body.flat .kpi, body.flat .panel, body.flat .tablecard, body.flat .ttcard,
+body.flat .boarding, body.flat .wk, body.flat .tab, body.flat .slasum .pill {
+  box-shadow: none !important;
+  border-color: #d4deec;
+}
+body.flat .panel--brand { border: 1px solid rgba(255,255,255,.2); }
+
+/* Tweak: disable entrance motion */
+body.nomotion .rise { animation: none; }
+
+/* server-rendered additions */
+canvas{max-width:100%}
+.tbl td .barmini{position:relative;height:16px;background:var(--line-2);border-radius:8px;overflow:hidden;min-width:70px}
+.tbl td .barmini i{position:absolute;inset:0;background:linear-gradient(90deg,var(--teal),var(--sky));border-radius:8px}
+.tbl td .barmini b{position:absolute;right:6px;top:0;line-height:16px;font-size:10px;color:var(--royal);font-weight:700}
+.okk{color:var(--good);font-weight:700}.badd{color:var(--red);font-weight:700}
+tr.rowbad td{background:#fdecec}
+.muted{color:var(--ink-3)}
+@media print{.weeknav,.tabs,.btn,.ttbar{display:none}#view-tt,#view-flt,#view-dash{display:block!important}}
+`;
+
+
+// ════════════════════════════════════════════════════════════════════════
+// ===== Reconcile.gs =====
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * Reconcile.gs — MASTER-based OFF counting + MANPOWER/Crewsign overrides
+ * =============================================================================
+ * Ports the legacy v3.1 bot's strengths onto the SHARED reader layer.
+ *
+ * The shared reader (RosterReader.gs) only sees people who appear in today's
+ * assignment file, so it cannot tell that someone is OFF (they simply aren't a
+ * row). The legacy bot solved this by reconciling against the MASTER
+ * establishment: every operational employee who is NOT found in today's file
+ * counts as OFF. This module reproduces that, but instead of re-parsing each
+ * team sheet it consumes the records already produced by
+ * readRosterFromSpreadsheet() — matching employees by ID first, then by a
+ * unique first name.
+ *
+ * It produces the "old-shape" aggregates the legacy Chat + PDF report expects:
+ *   bucket = { Working, OT_OFF, Off, Sick, Vac, OT_PRE, OT_PRE_HRS,
+ *              OT_POST, OT_POST_HRS, total }
+ * where Working ALWAYS INCLUDES the OT_OFF people (people working on a day off).
+ *
+ * Public:
+ *   reconcilePSA_(res, master)              -> { byPos, byTeam, totals, sickByTeamPos }
+ *   reconManpowerOverride_(recon, ss, m)    -> mutate recon.byPos from MANPOWER tab
+ *   reconCrewsignOverride_(recon, res, m)   -> mutate recon.byPos['Crewsign']
+ *   reconRecomputeTotals_(recon)            -> recompute recon.totals from byPos
+ *   reconAdaptLL_(ll)                       -> { byPos, totals, sickByPos } old-shape
+ */
+
+function reconNewBucket_() {
+  return { Working: 0, OT_OFF: 0, Off: 0, Sick: 0, Vac: 0,
+           OT_PRE: 0, OT_PRE_HRS: 0, OT_POST: 0, OT_POST_HRS: 0, total: 0 };
+}
+
+/** Translate a shared-reader record's bucket into the legacy classification. */
+function reconBucketFromRecord_(rec) {
+  var ot = rec.ot || 0;
+  switch (rec.bucket) {
+    case 'working': return { bucket: 'Working', otHrs: ot, otType: rec.otType || (ot > 0 ? 'POST' : null) };
+    case 'ot_off':  return { bucket: 'OT_OFF',  otHrs: ot, otType: 'POST' };
+    case 'sick':    return { bucket: 'Sick',    otHrs: 0,  otType: null };
+    case 'vac':     return { bucket: 'Vac',     otHrs: 0,  otType: null };
+    default:        return { bucket: 'Off',     otHrs: 0,  otType: null };
+  }
+}
+
+/** Add one classified person to a bucket (Working always includes OT_OFF). */
+function reconAddToBucket_(b, cls) {
+  if (cls.bucket === 'Working') {
+    b.Working++;
+    if (cls.otHrs > 0) {
+      if (cls.otType === 'PRE') { b.OT_PRE++; b.OT_PRE_HRS += cls.otHrs; }
+      else                      { b.OT_POST++; b.OT_POST_HRS += cls.otHrs; }
+    }
+  } else if (cls.bucket === 'OT_OFF') {
+    b.OT_OFF++; b.Working++;
+    if (cls.otHrs > 0) { b.OT_POST++; b.OT_POST_HRS += cls.otHrs; }
+  } else if (cls.bucket === 'Sick') {
+    b.Sick++;
+  } else if (cls.bucket === 'Vac') {
+    b.Vac++;
+  } else {
+    b.Off++;
+  }
+}
+
+function reconFirstName_(name) {
+  var t = String(name || '').trim().split(/\s+/)[0] || '';
+  return t.replace(/[.\-]+$/, '').toUpperCase();
+}
+
+/** Index the shared reader records by numeric ID and by (first) name. */
+function reconIndexRecords_(res) {
+  var byId = {}, byFirst = {};
+  Object.keys(res.teams).forEach(function (t) {
+    res.teams[t].records.forEach(function (r) {
+      var digits = String(r.id || '').replace(/\D/g, '');
+      if (digits.length >= 6 && digits.length <= 8 && !byId[digits]) byId[digits] = r;
+      var fn = reconFirstName_(r.name);
+      if (fn && fn.length >= 2 && !byFirst[fn]) byFirst[fn] = r;
+    });
+  });
+  return { byId: byId, byFirst: byFirst };
+}
+
+function reconBucketTotal_(b) { b.total = b.Working + b.Sick + b.Off + b.Vac; return b; }
+
+/**
+ * MASTER-based reconciliation: walk every operational PSA employee, find their
+ * record in today's file (ID → unique first name), classify, and tally. Absent
+ * employees count as OFF.
+ */
+function reconcilePSA_(res, master) {
+  var idx = reconIndexRecords_(res);
+  var byPos = {}, byTeam = {}, sick = [];
+
+  // first-name uniqueness within operational PSA master (avoid wrong matches)
+  var fnCount = {};
+  master.employees.forEach(function (e) {
+    if (e.dept === 'PSA' && e.operational && e.firstName) fnCount[e.firstName] = (fnCount[e.firstName] || 0) + 1;
+  });
+
+  master.employees.forEach(function (e) {
+    if (e.dept !== 'PSA' || !e.operational) return;
+    var rec = idx.byId[e.id];
+    if (!rec && e.firstName && fnCount[e.firstName] === 1 && idx.byFirst[e.firstName]) {
+      rec = idx.byFirst[e.firstName];
+    }
+    var cls = rec ? reconBucketFromRecord_(rec) : { bucket: 'Off', otHrs: 0, otType: null };
+
+    var pg = e.posGroup;
+    if (!byPos[pg]) byPos[pg] = reconNewBucket_();
+    reconAddToBucket_(byPos[pg], cls);
+    var teamKey = e.team || '(no team)';
+    if (!byTeam[teamKey]) byTeam[teamKey] = reconNewBucket_();
+    reconAddToBucket_(byTeam[teamKey], cls);
+    if (cls.bucket === 'Sick') sick.push({ team: e.team, pos: e.posGroup });
+  });
+
+  Object.keys(byPos).forEach(function (p) { reconBucketTotal_(byPos[p]); });
+  Object.keys(byTeam).forEach(function (t) { reconBucketTotal_(byTeam[t]); });
+
+  var recon = { byPos: byPos, byTeam: byTeam, totals: reconNewBucket_(), sickByTeamPos: sick };
+  reconRecomputeTotals_(recon);
+  return recon;
+}
+
+/** Sum byPos back into recon.totals (call after any override). */
+function reconRecomputeTotals_(recon) {
+  var T = reconNewBucket_();
+  Object.keys(recon.byPos).forEach(function (p) {
+    var b = recon.byPos[p];
+    T.Working += b.Working; T.OT_OFF += b.OT_OFF; T.Off += b.Off; T.Sick += b.Sick; T.Vac += b.Vac;
+    T.OT_PRE += b.OT_PRE; T.OT_PRE_HRS += b.OT_PRE_HRS; T.OT_POST += b.OT_POST; T.OT_POST_HRS += b.OT_POST_HRS;
+  });
+  reconBucketTotal_(T);
+  recon.totals = T;
+  return recon;
+}
+
+/**
+ * Crewsign override — recount the Crewsign group straight from the shared
+ * reader's crewsign records (which the master ID match usually misses, because
+ * crewsign rows carry names not IDs). Absent crewsign staff (master count minus
+ * matched) become OFF.
+ */
+function reconCrewsignOverride_(recon, res, master) {
+  var counts = reconNewBucket_(), found = 0;
+  Object.keys(res.teams).forEach(function (t) {
+    if (t.toUpperCase().indexOf('CREW') < 0) return;
+    res.teams[t].records.forEach(function (r) {
+      reconAddToBucket_(counts, reconBucketFromRecord_(r));
+      found++;
+    });
+  });
+  if (found === 0) return;                                  // no crewsign sheet → keep reconciled value
+
+  var masterCrew = master.employees.filter(function (e) {
+    return e.dept === 'PSA' && e.operational && e.posGroup === 'Crewsign';
+  }).length;
+  var active = counts.Working + counts.Vac + counts.Sick;    // Working already includes OT_OFF
+  counts.Off = Math.max(0, masterCrew - active);
+  reconBucketTotal_(counts);
+  recon.byPos['Crewsign'] = counts;
+  Logger.log('  📋 Crewsign override: W=%s OT_OFF=%s Vac=%s Sick=%s Off=%s (master %s)',
+             counts.Working, counts.OT_OFF, counts.Vac, counts.Sick, counts.Off, masterCrew);
+}
+
+/**
+ * MANPOWER tab override — the assignment file's MANPOWER summary tab carries
+ * authoritative ทำจริง / ลาป่วย / ลาพักร้อน counts per team grouping. Use those
+ * numbers (they are HR ground truth) for the groups they cover.
+ * (The shared reader SKIPS the MANPOWER sheet, so we read it here directly.)
+ */
+function reconManpowerOverride_(recon, ss, master) {
+  var ws = ss.getSheetByName('MANPOWER');
+  if (!ws) { Logger.log('  ⚠️ MANPOWER sheet ไม่พบ → ข้าม override'); return; }
+  var rows = ws.getDataRange().getValues();
+  if (rows.length < 5) return;
+
+  var teamToGroup = [
+    { match: /^\s*(team\s*)?\(?\s*PORTER\s*CREW(SIGN)?\s*\)?\s*$/i, posKey: 'Crewsign' },
+    { match: /CREWSIGN/i,                                            posKey: 'Crewsign' },
+    { match: /^\s*ADMIN\s*DOC/i,                                     posKey: 'AdminD' },
+    { match: /^\s*ADMIN\s*PORTER\s*\/?\s*PORTER/i,                   posKey: 'Porter' },
+    { match: /^\s*ADMIN\s*PORTER\s*$/i,                              posKey: 'Porter' },
+    { match: /^\s*PORTER\s*$/i,                                      posKey: 'Porter' },
+  ];
+
+  var headerRowIdx = -1;
+  for (var r = 0; r < Math.min(5, rows.length); r++) {
+    var rowJoined = (rows[r] || []).map(String).join(' ');
+    if (rowJoined.indexOf('ทำจริง') >= 0 || rowJoined.indexOf('On Roster') >= 0) { headerRowIdx = r; break; }
+  }
+  var dataStart = (headerRowIdx >= 0) ? headerRowIdx + 1 : 4;
+
+  var col = { team: 0, total: 1, onRoster: 2, sick: 3, personal: 4,
+              vacation: 5, maternity: 6, otherLeave: 7, training: 8, working: 9 };
+  if (headerRowIdx >= 0) {
+    var hdr = rows[headerRowIdx].map(function (v) { return String(v || '').trim(); });
+    hdr.forEach(function (h, i) {
+      if (h.indexOf('ทำจริง') >= 0)        col.working = i;
+      else if (h.indexOf('ลาป่วย') >= 0)    col.sick = i;
+      else if (h.indexOf('ลากิจ') >= 0)     col.personal = i;
+      else if (h.indexOf('ลาพักร้อน') >= 0) col.vacation = i;
+      else if (h.indexOf('ลาคลอด') >= 0)    col.maternity = i;
+      else if (h.indexOf('ลาอื่น') >= 0)    col.otherLeave = i;
+      else if (h.indexOf('อบรม') >= 0)      col.training = i;
+      else if (h.indexOf('On Roster') >= 0 || h.indexOf('on roster') >= 0) col.onRoster = i;
+      else if (h === 'ทั้งหมด' || h.indexOf('Total') >= 0) col.total = i;
+    });
+  }
+
+  for (var r2 = dataStart; r2 < rows.length; r2++) {
+    var row = rows[r2];
+    var teamRaw = String(row[col.team] || '').trim();
+    if (!teamRaw || teamRaw === 'รวม' || teamRaw.toUpperCase() === 'TOTAL') continue;
+
+    var posKey = null;
+    for (var i = 0; i < teamToGroup.length; i++) {
+      if (teamToGroup[i].match.test(teamRaw)) { posKey = teamToGroup[i].posKey; break; }
+    }
+    if (!posKey) continue;
+
+    var totalCount = parseInt(row[col.total], 10) || 0;
+    var working    = parseInt(row[col.working], 10) || 0;
+    var sick       = parseInt(row[col.sick], 10) || 0;
+    var personal   = parseInt(row[col.personal] || 0, 10) || 0;
+    var vacation   = parseInt(row[col.vacation] || 0, 10) || 0;
+    var maternity  = parseInt(row[col.maternity] || 0, 10) || 0;
+    var otherLeave = parseInt(row[col.otherLeave] || 0, 10) || 0;
+    var totalLeave = personal + vacation + maternity + otherLeave;
+
+    if (working === 0 && sick === 0 && totalLeave === 0 && totalCount === 0) continue;
+
+    var groupTotal = totalCount;
+    if (groupTotal === 0) {
+      groupTotal = master.employees.filter(function (e) {
+        return e.dept === 'PSA' && e.operational && e.posGroup === posKey;
+      }).length;
+    }
+
+    var nc = reconNewBucket_();
+    nc.Working = working;
+    nc.Sick    = sick;
+    nc.Vac     = totalLeave;
+    nc.Off     = Math.max(0, groupTotal - working - sick - totalLeave);
+    reconBucketTotal_(nc);
+
+    Logger.log('  📋 MANPOWER override %s ("%s"): Total=%s W=%s Sick=%s Vac=%s Off=%s',
+               posKey, teamRaw, groupTotal, working, sick, totalLeave, nc.Off);
+    recon.byPos[posKey] = nc;
+  }
+}
+
+/**
+ * Adapt the shared LL reader output ({positions, totals, sections}) into the
+ * legacy old-shape aggregates ({byPos, totals, sickByPos}). Trainees are
+ * excluded (the legacy report does not count LL trainees), matching v3.1.
+ */
+function reconAdaptLL_(ll) {
+  var byPos = {}, sick = [];
+  if (!ll || !ll.positions) return { byPos: byPos, totals: reconNewBucket_(), sickByPos: sick };
+
+  Object.keys(ll.positions).forEach(function (p) {
+    if (p === 'Trainee') return;
+    var a = ll.positions[p];
+    var b = reconNewBucket_();
+    b.Working = a.working + a.ot_off;          // Working includes OT_OFF
+    b.OT_OFF = a.ot_off;
+    b.Off = a.off; b.Sick = a.sick; b.Vac = a.leave;
+    b.OT_PRE = a.otPre; b.OT_PRE_HRS = a.otPreHrs;
+    b.OT_POST = a.otPost; b.OT_POST_HRS = a.otPostHrs;
+    reconBucketTotal_(b);
+    byPos[p] = b;
+  });
+
+  if (ll.sections) {
+    Object.keys(ll.sections).forEach(function (s) {
+      ll.sections[s].records.forEach(function (r) {
+        if (r.bucket === 'sick' && r.posGroup !== 'Trainee') sick.push({ pos: r.posGroup, name: r.name });
+      });
+    });
+  }
+
+  var recon = { byPos: byPos, totals: reconNewBucket_(), sickByPos: sick };
+  reconRecomputeTotals_(recon);
+  return recon;
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+// ===== LegacyReport.gs =====
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * LegacyReport.gs — "Bot B": detailed Google Chat tables + A4 PDF report
+ * =============================================================================
+ * The second report pipeline. Where RosterBot.gs (Bot A) writes the visual
+ * dashboard / timetable / SLA tabs and a short Chat summary, this one produces
+ * the legacy v3.1 deliverables HR relies on:
+ *   • a detailed monospaced Google Chat message (per-position W/OT-Off/Vac/
+ *     Sick/Off tables for PSA & LL, OT summary, per-team OT, active headcount)
+ *   • an A4 PDF report uploaded to Drive, with a shareable link in the message
+ *
+ * It SHARES the reader layer with Bot A — it does NOT re-parse sheets:
+ *   rbOpenTodayRoster_  (RosterBot.gs)     → today's PSA assignment file
+ *   readRosterFromSpreadsheet (RosterReader)→ per-person records
+ *   reconcilePSA_ (+ overrides, Reconcile)  → MASTER-based OFF counting
+ *   readLLForDate (LLReader) + reconAdaptLL_→ LL old-shape aggregates
+ *   readMaster_ (MasterReader)              → establishment headcount + roster
+ *
+ * Entry points:
+ *   runLegacyToday()           — today, for the time trigger
+ *   runLegacyReport(y, m, d)   — a specific date
+ *   setupLegacyTriggers()      — daily 08:05 / 14:05 (5 min after Bot A)
+ *
+ * The Chat webhook is read from the same Script Property as Bot A
+ * (CONFIG_RB.CHAT_WEBHOOK_PROP) — no secret in source.
+ */
+
+// position-group display labels + ordering (legacy)
+var POSITION_GROUPS = {
+  PSS:      { label: 'PSS' },      SNR:      { label: 'SNR' },
+  PSA:      { label: 'PSA' },      Globlex:  { label: 'Globlex' },
+  AdminD:   { label: 'Admin Doc' }, Porter:  { label: 'Porter' },
+  Crewsign: { label: 'Crewsign' },
+};
+var LL_POSITION_GROUPS = {
+  PSS:    { label: 'PSS' },    SNR:   { label: 'SNR' },
+  PSA:    { label: 'PSA' },    Porter:{ label: 'PORTER' }, Admin: { label: 'ADMIN' },
+};
+var POSITION_GROUPS_ORDER_    = ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign'];
+var LL_POSITION_GROUPS_ORDER_ = ['PSS', 'SNR', 'PSA', 'Porter', 'Admin'];
+
+var DAY_TH = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+var MONTH_FULL_TH = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+
+function formatThaiDate_(d) {
+  return d.getDate() + ' ' + MONTH_FULL_TH[d.getMonth() + 1] + ' ' + d.getFullYear() +
+    ' (วัน' + DAY_TH[d.getDay()] + ')';
+}
+
+// ─── ENTRY POINTS ───────────────────────────────────────────────────────────
+function runLegacyToday()        { legacyRunForDate_(new Date()); }
+function runLegacyReport(y, m, d) {
+  legacyRunForDate_((y && m && d) ? new Date(y, m - 1, d) : new Date());
+}
+
+function setupLegacyTriggers() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'runLegacyToday') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('runLegacyToday').timeBased().atHour(8).nearMinute(5).everyDays(1).create();
+  ScriptApp.newTrigger('runLegacyToday').timeBased().atHour(14).nearMinute(5).everyDays(1).create();
+  Logger.log('✅ ตั้ง trigger รายงานละเอียด (Bot B) ทุกวัน 08:05 และ 14:05 แล้ว');
+}
+
+// ─── MAIN ───────────────────────────────────────────────────────────────────
+function legacyRunForDate_(date) {
+  var now = new Date();
+  var slotLabel = (now.getHours() < 12) ? 'เช้า' : 'บ่าย';
+  var timeStr = Utilities.formatDate(now, Session.getScriptTimeZone() || 'Asia/Bangkok', 'HH:mm');
+
+  // MASTER (required for OFF counting) — fail loudly only if missing
+  var master;
+  try { master = readMaster_(MASTER_FILE_ID_RB); }
+  catch (e) { Logger.log('❌ Legacy: master เข้าไม่ได้ (' + e.message + ') — ยกเลิก (Bot B ต้องใช้ master)'); return; }
+
+  // PSA — shared reader → master reconciliation → overrides
+  var psa;
+  try {
+    var roster = rbOpenTodayRoster_(date);
+    var res = readRosterFromSpreadsheet(roster.ss);
+    psa = reconcilePSA_(res, master);
+    try { reconCrewsignOverride_(psa, res, master); } catch (e1) { Logger.log('⚠️ Crewsign override: ' + e1.message); }
+    try { reconManpowerOverride_(psa, roster.ss, master); } catch (e2) { Logger.log('⚠️ MANPOWER override: ' + e2.message); }
+    reconRecomputeTotals_(psa);
+    psa.fileName = roster.fileName || '';
+    if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e3) {} }
+  } catch (e) {
+    Logger.log('⚠️ PSA: ' + e.message);
+    psa = { byPos: {}, byTeam: {}, totals: reconNewBucket_(), sickByTeamPos: [], fileName: '(error: ' + e.message + ')' };
+  }
+
+  // LL — shared reader → old-shape adapter
+  var ll;
+  try {
+    var llRes = readLLForDate(CONFIG_RB.LL_FILE_ID, date);
+    ll = reconAdaptLL_(llRes);
+    ll.tabName = llRes.tabName || '';
+  } catch (e) {
+    Logger.log('⚠️ LL: ' + e.message);
+    ll = { byPos: {}, totals: reconNewBucket_(), sickByPos: [], tabName: '(error: ' + e.message + ')' };
+  }
+
+  // PDF (non-fatal)
+  var pdfUrl = null;
+  try { pdfUrl = generatePDFReport_(master, psa, ll, date, slotLabel, timeStr); Logger.log('📄 PDF: ' + pdfUrl); }
+  catch (e) { Logger.log('⚠️ PDF FAILED: ' + e.message + '\n' + (e.stack || '')); }
+
+  // Chat
+  var dateThai = formatThaiDate_(date);
+  var webhook = rbResolveWebhook_(CONFIG_RB.CHAT_WEBHOOK_PROP);
+  if (!webhook) { Logger.log('⚠️ Legacy: ไม่มี webhook — ตั้ง Script Property %s (หรือใส่ URL ใน CONFIG_RB.CHAT_WEBHOOK_PROP)', CONFIG_RB.CHAT_WEBHOOK_PROP); return; }
+  var msg = formatChatMessage_(master, psa, ll, dateThai, slotLabel, timeStr, pdfUrl);
+  postToChat_(webhook, msg);
+  Logger.log('✅ Legacy report sent');
+}
+
+// ─── CHAT MESSAGE FORMATTER ──────────────────────────────────────────────────
+function formatChatMessage_(master, psa, ll, dateThai, slotLabel, timeStr, pdfUrl) {
+  var L = [];
+  L.push('*📋 PSA + LL Roster — ' + dateThai + '*');
+  L.push('_รอบ' + slotLabel + ' • ' + timeStr + '_');
+  if (psa.fileName) L.push('  PSA file: `' + psa.fileName + '`');
+  if (ll.tabName)   L.push('  LL tab: `' + ll.tabName + '`');
+  L.push('');
+
+  L.push('━━━━━━━━━━━━━━━━━━━━━━');
+  L.push('*🔵 PSA — Roster: ' + psa.totals.total + ' คน*');
+  L.push('Pos         W   OT-Off  Vac  Sick  Off');
+  POSITION_GROUPS_ORDER_.forEach(function (key) {
+    var b = psa.byPos[key];
+    if (!b || b.total === 0) return;
+    L.push('• ' + padRight_(POSITION_GROUPS[key].label, 12) +
+           padLeft_(b.Working, 4) + padLeft_(b.OT_OFF, 6) +
+           padLeft_(b.Vac, 5) + padLeft_(b.Sick, 6) + padLeft_(b.Off, 5));
+  });
+  L.push('TOTAL       ' + padLeft_(psa.totals.Working, 4) +
+         padLeft_(psa.totals.OT_OFF, 6) + padLeft_(psa.totals.Vac, 5) +
+         padLeft_(psa.totals.Sick, 6)   + padLeft_(psa.totals.Off, 5));
+  L.push('⏱️ OT_B: *' + psa.totals.OT_PRE + '* (' + fmt1_(psa.totals.OT_PRE_HRS) + 'h)' +
+         '  |  OT_A: *' + psa.totals.OT_POST + '* (' + fmt1_(psa.totals.OT_POST_HRS) + 'h)');
+  if (psa.sickByTeamPos.length > 0) {
+    L.push('🤒 ลาป่วย PSA: ' + groupSick_(psa.sickByTeamPos).join(' | '));
+  }
+
+  L.push('');
+  L.push('━━━━━━━━━━━━━━━━━━━━━━');
+  L.push('*🟡 LL — Roster: ' + ll.totals.total + ' คน*');
+  L.push('Pos         W   OT-Off  Vac  Sick  Off');
+  LL_POSITION_GROUPS_ORDER_.forEach(function (key) {
+    var b = ll.byPos[key];
+    if (!b || b.total === 0) return;
+    L.push('• ' + padRight_(LL_POSITION_GROUPS[key].label, 12) +
+           padLeft_(b.Working, 4) + padLeft_(b.OT_OFF, 6) +
+           padLeft_(b.Vac, 5) + padLeft_(b.Sick, 6) + padLeft_(b.Off, 5));
+  });
+  L.push('TOTAL       ' + padLeft_(ll.totals.Working, 4) +
+         padLeft_(ll.totals.OT_OFF, 6) + padLeft_(ll.totals.Vac, 5) +
+         padLeft_(ll.totals.Sick, 6)   + padLeft_(ll.totals.Off, 5));
+  L.push('⏱️ OT_B: *' + ll.totals.OT_PRE + '* (' + fmt1_(ll.totals.OT_PRE_HRS) + 'h)' +
+         '  |  OT_A: *' + ll.totals.OT_POST + '* (' + fmt1_(ll.totals.OT_POST_HRS) + 'h)');
+  if (ll.sickByPos.length > 0) {
+    var sickByPosGrouped = {};
+    ll.sickByPos.forEach(function (s) { sickByPosGrouped[s.pos] = (sickByPosGrouped[s.pos] || 0) + 1; });
+    var sickLines = [];
+    Object.keys(sickByPosGrouped).forEach(function (p) {
+      sickLines.push((LL_POSITION_GROUPS[p] ? LL_POSITION_GROUPS[p].label : p) + ': ' + sickByPosGrouped[p] + ' คน');
+    });
+    L.push('🤒 ลาป่วย LL: ' + sickLines.join(' | '));
+  }
+
+  L.push('');
+  L.push('━━━━━━━━━━━━━━━━━━━━━━');
+  L.push('*📊 OT Summary*');
+  L.push('🔵 PSA: OFF *' + psa.totals.OT_OFF + '* | PRE *' + psa.totals.OT_PRE +
+         '* (' + fmt1_(psa.totals.OT_PRE_HRS) + 'h) | POST *' + psa.totals.OT_POST +
+         '* (' + fmt1_(psa.totals.OT_POST_HRS) + 'h)');
+  L.push('🟡 LL: OFF *' + ll.totals.OT_OFF + '* | PRE *' + ll.totals.OT_PRE +
+         '* (' + fmt1_(ll.totals.OT_PRE_HRS) + 'h) | POST *' + ll.totals.OT_POST +
+         '* (' + fmt1_(ll.totals.OT_POST_HRS) + 'h)');
+
+  if (psa.byTeam && Object.keys(psa.byTeam).length > 0) {
+    L.push('');
+    L.push('━━━━━━━━━━━━━━━━━━━━━━');
+    L.push('*🔵 PSA แยกทีม + OT*');
+    L.push('Team             W  Off  Sick  OT_B  OT_A');
+    var seenTeams = {};
+    var renderTeamOT = function (t, b) {
+      var otB = b.OT_PRE > 0 ? (b.OT_PRE + '(' + fmt1_(b.OT_PRE_HRS) + 'h)') : '-';
+      var otA = b.OT_POST > 0 ? (b.OT_POST + '(' + fmt1_(b.OT_POST_HRS) + 'h)') : '-';
+      L.push('• ' + padRight_(t, 16) +
+             padLeft_(b.Working, 3) + padLeft_(b.Off + b.Vac, 5) +
+             padLeft_(b.Sick, 5) + padLeft_(otB, 8) + padLeft_(otA, 8));
+    };
+    LEGACY_TEAM_ORDER_.forEach(function (t) {
+      var b = psa.byTeam[t];
+      if (b && b.total > 0) { seenTeams[t] = true; renderTeamOT(t, b); }
+    });
+    Object.keys(psa.byTeam).sort().forEach(function (t) {
+      if (seenTeams[t]) return;
+      var b = psa.byTeam[t];
+      if (b && b.total > 0) renderTeamOT(t, b);
+    });
+  }
+
+  L.push('');
+  L.push('━━━━━━━━━━━━━━━━━━━━━━');
+  L.push('*👥 Headcount (Active ทั้งหมด)*');
+  L.push('PSA: *' + master.headcount.PSA.total + '* | LL: *' + master.headcount.LL.total +
+         '* | รวม: *' + (master.headcount.PSA.total + master.headcount.LL.total) + '* คน');
+  var psaBreakdown = formatHeadcountBreakdown_(master.headcount.PSA.byPos);
+  var llBreakdown  = formatHeadcountBreakdown_(master.headcount.LL.byPos);
+  if (psaBreakdown) L.push('PSA: ' + psaBreakdown);
+  if (llBreakdown)  L.push('LL:  ' + llBreakdown);
+
+  if (pdfUrl) {
+    L.push('');
+    L.push('━━━━━━━━━━━━━━━━━━━━━━');
+    L.push('📎 *PDF Report:* <' + pdfUrl + '|เปิดดู PDF>');
+    L.push('   ' + pdfUrl);
+  } else {
+    L.push('');
+    L.push('_⚠️ PDF ไม่ได้สร้าง — ดู Executions log_');
+  }
+
+  return { text: L.join('\n') };
+}
+
+// Preferred team ordering for the per-team block (actual master team names).
+var LEGACY_TEAM_ORDER_ = ['EK/UO/6B/BY/FY', 'SQ/CX/LY', 'EY/DV/AY', 'TR/6E/QP', 'WY/DK/G9/9C',
+  'JQ/IT/IX/AI/N0', 'TK/VJ/SG/HY/OD', 'KC/LJ/KE/OZ/NO/AF', 'QR/MH/OM/DE',
+  'AK/QZ/8M', 'SU/B2/W5', 'CHINA TEAM', 'PG', 'SV/KA/WK', 'PVT', 'Charter',
+  'PORTER', 'ADMIN PORTER', 'ADMIN DOC', 'Porter Crewsign'];
+
+function formatHeadcountBreakdown_(byPos) {
+  var order = ['DIR', 'MGR', 'Assist', 'PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'AdminP', 'Admin',
+               'Porter', 'Crewsign', 'OFFICE', 'LL_ADMIN'];
+  var displayNames = { AdminD: 'AdminDoc', AdminP: 'AdminPort', OFFICE: 'OFFICE', LL_ADMIN: 'AdminLL' };
+  var parts = [];
+  order.forEach(function (p) {
+    if (byPos[p] && byPos[p] > 0) parts.push((displayNames[p] || p) + ':' + byPos[p]);
+  });
+  Object.keys(byPos).sort().forEach(function (p) {
+    if (order.indexOf(p) < 0 && byPos[p] > 0) parts.push(p + ':' + byPos[p]);
+  });
+  return parts.join(' | ');
+}
+
+function groupSick_(arr) {
+  var byTeam = {};
+  arr.forEach(function (s) {
+    if (!byTeam[s.team]) byTeam[s.team] = {};
+    byTeam[s.team][s.pos] = (byTeam[s.team][s.pos] || 0) + 1;
+  });
+  var lines = [];
+  Object.keys(byTeam).forEach(function (t) {
+    var posLines = [];
+    Object.keys(byTeam[t]).forEach(function (p) {
+      posLines.push((POSITION_GROUPS[p] ? POSITION_GROUPS[p].label : p) + ' ' + byTeam[t][p]);
+    });
+    lines.push(t + '→' + posLines.join(','));
+  });
+  return lines;
+}
+
+function fmt1_(n) { return (Math.round((n || 0) * 10) / 10).toFixed(1); }
+function padLeft_(s, w) { s = String(s); while (s.length < w) s = ' ' + s; return s; }
+function padRight_(s, w) { s = String(s); while (s.length < w) s = s + ' '; return s; }
+
+// ─── HTTP POST ────────────────────────────────────────────────────────────
+function postToChat_(webhookUrl, payload) {
+  var res = UrlFetchApp.fetch(webhookUrl, {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify(payload), muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() >= 300) {
+    throw new Error('Chat error ' + res.getResponseCode() + ': ' + res.getContentText());
+  }
+}
+
+// ─── PDF GENERATOR ────────────────────────────────────────────────────────────
+function generatePDFReport_(master, psa, ll, date, slotLabel, timeStr) {
+  // Build in a throwaway spreadsheet (standalone-safe — never touches MASTER).
+  var temp = SpreadsheetApp.create('_PDF_TMP_' + Utilities.formatDate(date, 'Asia/Bangkok', 'yyyyMMdd') + '_' + Date.now());
+  var sh = temp.getSheets()[0];
+  try {
+    writePDFLayout_(sh, master, psa, ll, date, slotLabel, timeStr);
+    SpreadsheetApp.flush();
+    var pdfBlob = exportSheetAsPDF_(temp, sh);
+    var fileName = 'Roster_' + Utilities.formatDate(date, 'Asia/Bangkok', 'ddMMMyy') +
+                   '_' + slotLabel + '_' + Utilities.formatDate(date, 'Asia/Bangkok', 'HHmm') + '.pdf';
+    pdfBlob.setName(fileName);
+    var folder = legacyPdfFolder_();
+    var file = folder.createFile(pdfBlob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return file.getUrl();
+  } finally {
+    try { DriveApp.getFileById(temp.getId()).setTrashed(true); } catch (e) {}
+  }
+}
+
+function legacyPdfFolder_() {
+  if (CONFIG_RB.OUTPUT_FOLDER_ID) {
+    try { return DriveApp.getFolderById(CONFIG_RB.OUTPUT_FOLDER_ID); } catch (e) {}
+  }
+  var name = 'SmartShift PDF Reports';
+  var it = DriveApp.getFoldersByName(name);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(name);
+}
+
+function exportSheetAsPDF_(ss, sh) {
+  var url = 'https://docs.google.com/spreadsheets/d/' + ss.getId() + '/export'
+          + '?format=pdf&size=A4&portrait=true&fitw=true'
+          + '&gridlines=false&printtitle=false&sheetnames=false&pagenumbers=false'
+          + '&fzr=false&gid=' + sh.getSheetId();
+  return UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }
+  }).getBlob();
+}
+
+function writePDFLayout_(sh, master, psa, ll, date, slotLabel, timeStr) {
+  // Col 8 is the gap between the PSA (1-7) and LL (9-15) halves at the top, but
+  // the per-team table below spans cols 1-9 — so cols 7 & 8 carry OT_B/OT_A and
+  // must be wide enough not to truncate "N (XX.Xh)".
+  [110, 60, 60, 65, 50, 50, 72, 72, 110, 60, 60, 65, 50, 50, 60].forEach(function (w, i) {
+    sh.setColumnWidth(i + 1, w);
+  });
+
+  var dateThai = formatThaiDate_(date);
+  var R = 1;
+
+  sh.setRowHeight(R, 36);
+  sh.getRange(R, 1, 1, 15).merge()
+    .setValue('📊 PSA + LL Manpower — Daily Roster Report')
+    .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold')
+    .setFontSize(14).setHorizontalAlignment('center').setVerticalAlignment('middle');
+  R++;
+
+  sh.setRowHeight(R, 22);
+  sh.getRange(R, 1, 1, 15).merge()
+    .setValue('📅 ' + dateThai + ' · รอบ' + slotLabel + ' · ' + timeStr)
+    .setBackground('#1a3c5a').setFontColor('#cdf').setFontSize(10)
+    .setHorizontalAlignment('center').setVerticalAlignment('middle');
+  R += 2;
+
+  sh.setRowHeight(R, 24);
+  sh.getRange(R, 1, 1, 7).merge()
+    .setValue('🔵 PSA — Roster: ' + psa.totals.total + ' คน')
+    .setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
+    .setFontSize(11).setHorizontalAlignment('left').setVerticalAlignment('middle')
+    .setBorder(true, true, true, true, false, false);
+  sh.getRange(R, 9, 1, 7).merge()
+    .setValue('🟡 LL — Roster: ' + ll.totals.total + ' คน')
+    .setBackground('#7f6000').setFontColor('#fff').setFontWeight('bold')
+    .setFontSize(11).setHorizontalAlignment('left').setVerticalAlignment('middle')
+    .setBorder(true, true, true, true, false, false);
+  R++;
+
+  sh.setRowHeight(R, 16);
+  sh.getRange(R, 1, 1, 7).merge()
+    .setValue('นับจาก Roster + MASTER establishment (คนไม่อยู่ในไฟล์ = Off)')
+    .setFontColor('#666').setFontSize(8).setFontStyle('italic').setHorizontalAlignment('left');
+  sh.getRange(R, 9, 1, 7).merge()
+    .setValue('นับจาก LL daily tab — Working + OT วันหยุด + Sick + Off')
+    .setFontColor('#666').setFontSize(8).setFontStyle('italic').setHorizontalAlignment('left');
+  R++;
+
+  sh.setRowHeight(R, 20);
+  ['Position', 'Working', 'OT วันหยุด', 'OT (ชม.)', 'Sick', 'Off', 'Total'].forEach(function (h, i) {
+    sh.getRange(R, 1 + i).setValue(h).setBackground('#2e75b6').setFontColor('#fff').setFontWeight('bold')
+      .setFontSize(9).setHorizontalAlignment(i === 0 ? 'left' : 'center').setVerticalAlignment('middle')
+      .setBorder(true, true, true, true, false, false);
+  });
+  ['Team', 'Working', 'OT วันหยุด', 'OT (ชม.)', 'Sick', 'Off', 'Total'].forEach(function (h, i) {
+    sh.getRange(R, 9 + i).setValue(h).setBackground('#bf8f00').setFontColor('#fff').setFontWeight('bold')
+      .setFontSize(9).setHorizontalAlignment(i === 0 ? 'left' : 'center').setVerticalAlignment('middle')
+      .setBorder(true, true, true, true, false, false);
+  });
+  R++;
+
+  var psaR = R, llR = R;
+  var psaBg = ['#dceef9', '#ebf5fc'], llBg = ['#fff9e6', '#fef3cd'];
+  var psaIdx = 0, llIdx = 0;
+
+  POSITION_GROUPS_ORDER_.forEach(function (key) {
+    var b = psa.byPos[key];
+    if (!b || b.total === 0) return;
+    sh.setRowHeight(psaR, 18);
+    var bg = psaBg[psaIdx++ % 2];
+    var totalOTHrs = b.OT_PRE_HRS + b.OT_POST_HRS;
+    [POSITION_GROUPS[key].label, b.Working, b.OT_OFF, fmt1_(totalOTHrs) + 'h',
+     b.Sick, b.Off + b.Vac, b.total].forEach(function (v, i) {
+      sh.getRange(psaR, 1 + i).setValue(v).setBackground(bg).setFontSize(9)
+        .setHorizontalAlignment(i === 0 ? 'left' : 'center').setVerticalAlignment('middle')
+        .setBorder(false, true, true, true, false, false)
+        .setFontWeight(i === 0 || i === 6 ? 'bold' : 'normal');
+    });
+    psaR++;
+  });
+
+  LL_POSITION_GROUPS_ORDER_.forEach(function (key) {
+    var b = ll.byPos[key];
+    if (!b || b.total === 0) return;
+    sh.setRowHeight(llR, 18);
+    var bg = llBg[llIdx++ % 2];
+    var totalOTHrs = b.OT_PRE_HRS + b.OT_POST_HRS;
+    [LL_POSITION_GROUPS[key].label, b.Working, b.OT_OFF, fmt1_(totalOTHrs) + 'h',
+     b.Sick, b.Off + b.Vac, b.total].forEach(function (v, i) {
+      sh.getRange(llR, 9 + i).setValue(v).setBackground(bg).setFontSize(9)
+        .setHorizontalAlignment(i === 0 ? 'left' : 'center').setVerticalAlignment('middle')
+        .setBorder(false, true, true, true, false, false)
+        .setFontWeight(i === 0 || i === 6 ? 'bold' : 'normal');
+    });
+    llR++;
+  });
+
+  sh.setRowHeight(psaR, 22);
+  ['GRAND TOTAL', psa.totals.Working, psa.totals.OT_OFF,
+   fmt1_(psa.totals.OT_PRE_HRS + psa.totals.OT_POST_HRS) + 'h',
+   psa.totals.Sick, psa.totals.Off + psa.totals.Vac, psa.totals.total].forEach(function (v, i) {
+    sh.getRange(psaR, 1 + i).setValue(v).setBackground('#1f4e79').setFontColor('#fff')
+      .setFontWeight('bold').setFontSize(10).setHorizontalAlignment(i === 0 ? 'left' : 'center').setVerticalAlignment('middle');
+  });
+  psaR++;
+
+  sh.setRowHeight(llR, 22);
+  ['GRAND TOTAL', ll.totals.Working, ll.totals.OT_OFF,
+   fmt1_(ll.totals.OT_PRE_HRS + ll.totals.OT_POST_HRS) + 'h',
+   ll.totals.Sick, ll.totals.Off + ll.totals.Vac, ll.totals.total].forEach(function (v, i) {
+    sh.getRange(llR, 9 + i).setValue(v).setBackground('#7f6000').setFontColor('#fff')
+      .setFontWeight('bold').setFontSize(10).setHorizontalAlignment(i === 0 ? 'left' : 'center').setVerticalAlignment('middle');
+  });
+  llR++;
+
+  sh.getRange(psaR, 1, 1, 7).merge()
+    .setValue('⏱️ PRE: ' + psa.totals.OT_PRE + ' (' + fmt1_(psa.totals.OT_PRE_HRS) + 'h) | POST: ' + psa.totals.OT_POST + ' (' + fmt1_(psa.totals.OT_POST_HRS) + 'h)')
+    .setBackground('#f0f4fa').setFontSize(8).setFontStyle('italic').setHorizontalAlignment('left');
+  psaR++;
+
+  sh.getRange(llR, 9, 1, 7).merge()
+    .setValue('⏱️ PRE: ' + ll.totals.OT_PRE + ' (' + fmt1_(ll.totals.OT_PRE_HRS) + 'h) | POST: ' + ll.totals.OT_POST + ' (' + fmt1_(ll.totals.OT_POST_HRS) + 'h)')
+    .setBackground('#fffbeb').setFontSize(8).setFontStyle('italic').setHorizontalAlignment('left');
+  llR++;
+
+  if (psa.sickByTeamPos.length > 0) {
+    sh.getRange(psaR, 1, 1, 7).merge()
+      .setValue('🤒 ลาป่วย PSA: ' + groupSick_(psa.sickByTeamPos).join(' | '))
+      .setBackground('#fff3f3').setFontSize(8)
+      .setBorder(true, true, true, true, false, false, '#e57373', SpreadsheetApp.BorderStyle.SOLID)
+      .setHorizontalAlignment('left');
+  } else {
+    sh.getRange(psaR, 1, 1, 7).merge().setValue('🤒 ไม่มีลาป่วย')
+      .setBackground('#f0f4fa').setFontSize(8).setFontStyle('italic').setHorizontalAlignment('left');
+  }
+  psaR++;
+
+  if (ll.sickByPos.length > 0) {
+    var llSickByPos = {};
+    ll.sickByPos.forEach(function (s) { llSickByPos[s.pos] = (llSickByPos[s.pos] || 0) + 1; });
+    var sickStr = Object.keys(llSickByPos).map(function (p) {
+      return (LL_POSITION_GROUPS[p] ? LL_POSITION_GROUPS[p].label : p) + ': ' + llSickByPos[p] + ' คน';
+    }).join(' | ');
+    sh.getRange(llR, 9, 1, 7).merge().setValue('🤒 ลาป่วย LL: ' + sickStr)
+      .setBackground('#fff3f3').setFontSize(8).setHorizontalAlignment('left');
+  } else {
+    sh.getRange(llR, 9, 1, 7).merge().setValue('🤒 ไม่มีลาป่วย')
+      .setBackground('#fffbeb').setFontSize(8).setFontStyle('italic').setHorizontalAlignment('left');
+  }
+  llR++;
+
+  R = Math.max(psaR, llR) + 2;
+
+  sh.setRowHeight(R, 28);
+  sh.getRange(R, 1, 1, 15).merge()
+    .setValue('📊 OT Summary  |  🔵 PSA: OFF ' + psa.totals.OT_OFF +
+              ' | OT_B ' + psa.totals.OT_PRE + ' (' + fmt1_(psa.totals.OT_PRE_HRS) + 'h) | OT_A ' + psa.totals.OT_POST + ' (' + fmt1_(psa.totals.OT_POST_HRS) + 'h)' +
+              '  •  🟡 LL: OFF ' + ll.totals.OT_OFF +
+              ' | OT_B ' + ll.totals.OT_PRE + ' (' + fmt1_(ll.totals.OT_PRE_HRS) + 'h) | OT_A ' + ll.totals.OT_POST + ' (' + fmt1_(ll.totals.OT_POST_HRS) + 'h)')
+    .setBackground('#1a3c5a').setFontColor('#fff').setFontWeight('bold')
+    .setFontSize(9).setHorizontalAlignment('center').setVerticalAlignment('middle');
+  R += 2;
+
+  if (psa.byTeam && Object.keys(psa.byTeam).length > 0) {
+    sh.setRowHeight(R, 22);
+    sh.getRange(R, 1, 1, 15).merge()
+      .setValue('🔵 PSA แยกทีม + OT (master-reconciled)')
+      .setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
+      .setFontSize(10).setHorizontalAlignment('left').setVerticalAlignment('middle');
+    R++;
+
+    sh.setRowHeight(R, 18);
+    ['Team', 'Working', 'OT-Off', 'Vac', 'Sick', 'Off', 'OT_B (h)', 'OT_A (h)', 'Total'].forEach(function (h, i) {
+      sh.getRange(R, 1 + i).setValue(h).setBackground('#2e75b6').setFontColor('#fff')
+        .setFontWeight('bold').setFontSize(9).setHorizontalAlignment(i === 0 ? 'left' : 'center');
+    });
+    R++;
+
+    var rowBg = ['#dceef9', '#ebf5fc'], idx = 0, seenT = {};
+    var renderTeam = function (t, b) {
+      sh.setRowHeight(R, 17);
+      var bg = rowBg[idx++ % 2];
+      var otB = b.OT_PRE > 0 ? (b.OT_PRE + ' (' + fmt1_(b.OT_PRE_HRS) + 'h)') : '-';
+      var otA = b.OT_POST > 0 ? (b.OT_POST + ' (' + fmt1_(b.OT_POST_HRS) + 'h)') : '-';
+      [t, b.Working, b.OT_OFF, b.Vac, b.Sick, b.Off, otB, otA, b.total].forEach(function (v, i) {
+        sh.getRange(R, 1 + i).setValue(v).setBackground(bg).setFontSize(9)
+          .setHorizontalAlignment(i === 0 ? 'left' : 'center');
+      });
+      R++;
+    };
+    LEGACY_TEAM_ORDER_.forEach(function (t) { var b = psa.byTeam[t]; if (b && b.total > 0) { seenT[t] = true; renderTeam(t, b); } });
+    Object.keys(psa.byTeam).sort().forEach(function (t) { if (seenT[t]) return; var b = psa.byTeam[t]; if (b && b.total > 0) renderTeam(t, b); });
+    R++;
+  }
+
+  sh.setRowHeight(R, 22);
+  sh.getRange(R, 1, 1, 15).merge()
+    .setValue('👥 จำนวนพนักงานปัจจุบันตามตำแหน่ง  ⚠️ นับจาก Manpower File — รวมทุกสถานะ ≠ จำนวนที่มาทำงานวันนี้')
+    .setBackground('#444').setFontColor('#fff').setFontWeight('bold')
+    .setFontSize(9).setHorizontalAlignment('left').setVerticalAlignment('middle');
+  R++;
+
+  writeHeadcountTable_(sh, R, 1, 'PSA', master.headcount.PSA);
+  writeHeadcountTable_(sh, R, 9, 'LL', master.headcount.LL);
+  R += Math.max(headcountRowCount_(master.headcount.PSA), headcountRowCount_(master.headcount.LL)) + 4;
+
+  sh.setRowHeight(R, 22);
+  sh.getRange(R, 1, 1, 15).merge()
+    .setValue('🏢 รวมพนักงานทั้ง 2 แผนก : PSA ' + master.headcount.PSA.total +
+              ' + LL ' + master.headcount.LL.total +
+              ' = ' + (master.headcount.PSA.total + master.headcount.LL.total) + ' คน')
+    .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold')
+    .setFontSize(11).setHorizontalAlignment('center').setVerticalAlignment('middle');
+  R++;
+
+  sh.getRange(R, 1, 1, 15).merge()
+    .setValue('สร้างอัตโนมัติ · ' + timeStr)
+    .setFontColor('#999').setFontSize(7).setFontStyle('italic').setHorizontalAlignment('right');
+}
+
+function writeHeadcountTable_(sh, startRow, startCol, label, hc) {
+  var bg = label === 'PSA' ? '#1f4e79' : '#7f6000';
+  var rowBg = label === 'PSA' ? ['#dceef9', '#ebf5fc'] : ['#fff9e6', '#fef3cd'];
+  var R = startRow;
+
+  sh.getRange(R, startCol, 1, 7).merge()
+    .setValue((label === 'PSA' ? '🔵' : '🟡') + ' ' + label + ' — รวม: ' + hc.total + ' คน')
+    .setBackground(bg).setFontColor('#fff').setFontWeight('bold')
+    .setFontSize(10).setHorizontalAlignment('left').setVerticalAlignment('middle');
+  R++;
+
+  sh.getRange(R, startCol, 1, 7).merge()
+    .setValue('ตำแหน่ง                                                  จำนวน')
+    .setBackground('#888').setFontColor('#fff').setFontWeight('bold').setFontSize(8);
+  R++;
+
+  var posOrder = ['DIR', 'MGR', 'Assist', 'PSS', 'SNR', 'PSA', 'Globlex',
+                  'AdminP', 'AdminD', 'Admin', 'Porter', 'Crewsign', 'OFFICE', 'LL_ADMIN'];
+  var displayNames = { OFFICE: 'OFFICE (non-op)', LL_ADMIN: 'ADMIN LL (non-op)' };
+  var idx = 0;
+  posOrder.forEach(function (p) {
+    var n = hc.byPos[p];
+    if (!n || n === 0) return;
+    var displayName = displayNames[p] || (POSITION_GROUPS[p] ? POSITION_GROUPS[p].label : p);
+    sh.setRowHeight(R, 16);
+    sh.getRange(R, startCol, 1, 5).merge().setValue(displayName)
+      .setBackground(rowBg[idx % 2]).setFontSize(9).setHorizontalAlignment('left');
+    sh.getRange(R, startCol + 5, 1, 2).merge().setValue(n)
+      .setBackground(rowBg[idx % 2]).setFontSize(9).setFontWeight('bold').setHorizontalAlignment('center');
+    R++; idx++;
+  });
+  Object.keys(hc.byPos).sort().forEach(function (p) {
+    if (posOrder.indexOf(p) >= 0) return;
+    var n = hc.byPos[p];
+    if (!n || n === 0) return;
+    sh.setRowHeight(R, 16);
+    sh.getRange(R, startCol, 1, 5).merge().setValue(p).setBackground(rowBg[idx % 2]).setFontSize(9).setHorizontalAlignment('left');
+    sh.getRange(R, startCol + 5, 1, 2).merge().setValue(n).setBackground(rowBg[idx % 2]).setFontSize(9).setFontWeight('bold').setHorizontalAlignment('center');
+    R++; idx++;
+  });
+
+  sh.setRowHeight(R, 18);
+  sh.getRange(R, startCol, 1, 5).merge().setValue('TOTAL')
+    .setBackground(bg).setFontColor('#fff').setFontWeight('bold').setFontSize(10).setHorizontalAlignment('left');
+  sh.getRange(R, startCol + 5, 1, 2).merge().setValue(hc.total)
+    .setBackground(bg).setFontColor('#fff').setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center');
+}
+
+function headcountRowCount_(hc) {
+  var c = 0;
+  Object.keys(hc.byPos).forEach(function (p) { if (hc.byPos[p] > 0) c++; });
+  return c + 3;
+}

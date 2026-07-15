@@ -1,0 +1,7 @@
+# Push ONLY the split .gs + appsscript.json to Apps Script.
+# The single-file build duplicates every function — must NOT be pushed.
+single-file/**
+**/*.md
+**/*.py
+.clasp.json
+.claspignore
