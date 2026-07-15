@@ -368,6 +368,7 @@ function teamCodeFromLabel_(label) {
 function parseSummarySheet_(values) {
   const out = {};
   const HDR = /(?:team|code)\s*\/\s*week/i;
+  const sum = o => Object.keys(o).reduce((s, k) => s + o[k].reduce((a, b) => a + b, 0), 0);
   for (let r = 0; r < values.length; r++) {
     const row = values[r];
     if (!row) continue;
@@ -379,30 +380,35 @@ function parseSummarySheet_(values) {
       if (mIdx < 0) continue;
       const key = MONTH_NUM_TO_ABBR[mIdx] + ' ' + wm[4];
       const wCols = [c + 1, c + 2, c + 3, c + 4];
-      const rec = out[key] || (out[key] = {
-        teams: {}, codes: {}, monthTotal: 0,
-        weekLabels: wCols.map(x => String(row[x]).replace(/\s+/g, ' ').trim()),
-      });
+      const labels = wCols.map(x => String(row[x]).replace(/\s+/g, ' ').trim());
+      // Parse this one block into its own teams/codes.
+      const teams = {}, codes = {};
       for (let rr = r + 1; rr < values.length; rr++) {
         const label = String(values[rr][c] || '').trim();
         if (!label) break;                                   // block ended
         if (/^(รวม|total)$/i.test(label)) break;             // footer
         if (/^A[1-8]$/i.test(label)) {
-          rec.codes[label.toUpperCase()] = wCols.map(x => hmsToMin_(values[rr][x]));
+          codes[label.toUpperCase()] = wCols.map(x => hmsToMin_(values[rr][x]));
         } else {
           const tc = teamCodeFromLabel_(label);
-          if (tc) rec.teams[tc] = wCols.map(x => hmsToMin_(values[rr][x]));
+          if (tc) teams[tc] = wCols.map(x => hmsToMin_(values[rr][x]));
         }
       }
+      // A month can appear more than once (a small/old copy alongside the full
+      // grid). Keep the LARGEST team block and the LARGEST code block so a stray
+      // copy can't shadow the complete figures.
+      const rec = out[key] || (out[key] = { teams: {}, codes: {}, weekLabels: labels, _tt: 0, _ct: 0 });
+      const tt = sum(teams), ct = sum(codes);
+      if (Object.keys(teams).length && tt >= rec._tt) { rec.teams = teams; rec._tt = tt; rec.weekLabels = labels; }
+      if (Object.keys(codes).length && ct >= rec._ct) { rec.codes = codes; rec._ct = ct; }
     }
   }
-  // Drop empty (future / unfilled) month blocks; finalise totals.
+  // Drop empty (future / unfilled) months; finalise the total.
   Object.keys(out).forEach(key => {
     const rec = out[key];
-    const tot = Object.keys(rec.teams).reduce(
-      (s, t) => s + rec.teams[t].reduce((a, b) => a + b, 0), 0);
-    if (tot <= 0) { delete out[key]; return; }
-    rec.monthTotal = tot;
+    if ((rec._tt || 0) <= 0) { delete out[key]; return; }
+    rec.monthTotal = rec._tt;
+    delete rec._tt; delete rec._ct;
   });
   return out;
 }
