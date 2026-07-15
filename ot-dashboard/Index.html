@@ -672,6 +672,10 @@ function applyLiveLL(newLL){
     const live=normalizeLLRecord(newLL[k]);
     if(llRecTotal(live)<=0)return;            // empty live month → keep baseline
     const cur=LL_DATA[k];
+    // Grow-only: never let a partial/small live read shrink a month that already
+    // holds more complete (verified) data — that's what produced a June that was
+    // both too small and internally inconsistent (A7 > week total → negative).
+    if(cur && llRecTotal(live) < llRecTotal(cur))return;
     // The live source (getLLData_ REV 2) returns flat monthly data with no
     // weekly breakdown. If we already hold a weekly split whose total matches
     // the live total exactly, the month hasn't changed — keep the richer weekly
@@ -1520,8 +1524,10 @@ function renderLLMonth(mk){
         return 0;
       })
     : [llCodeMonth(mk,'A7')];
-  const weeklyA7Hrs=weeklyA7.map(m=>+(m/60).toFixed(1));
-  const weeklyRegHrs=weeklyTotal.map((t,i)=>+((t-weeklyA7[i])/60).toFixed(1));
+  // Cap A7 at the week total and floor Regular at 0 — if a source ever reports
+  // A7 above the week's total OT (inconsistent data), never draw a negative bar.
+  const weeklyA7Hrs=weeklyA7.map((m,i)=>+(Math.min(m,weeklyTotal[i]||0)/60).toFixed(1));
+  const weeklyRegHrs=weeklyTotal.map((t,i)=>+(Math.max(0,(t-weeklyA7[i]))/60).toFixed(1));
   CH['llmWeekly']=new Chart(document.getElementById('llmWeekly'),{type:'bar',
     data:{labels:weekLabels,datasets:[
       {label:'Regular OT',data:weeklyRegHrs,backgroundColor:'#8b5cf6',borderRadius:3,stack:'ot',order:2},
